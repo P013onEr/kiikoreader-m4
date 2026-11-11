@@ -1,4 +1,4 @@
-#if defined(KIIKO_LOCAL_LATENCY) || KIIKO_BOARD_METALIO47
+#if defined(KIIKO_LOCAL_LATENCY) || KIIKO_BOARD_METALIO47 || KIIKO_BOARD_MURPHY_M4
 #if KIIKO_BOARD_METALIO47
 #ifdef ESP_PLATFORM
 #include "ui_locale_format.h"
@@ -7,7 +7,7 @@
 #endif
 #include "esp_timer.h"
 #endif
-#ifdef KIIKO_LOCAL_LATENCY
+#if defined(KIIKO_LOCAL_LATENCY) || KIIKO_BOARD_MURPHY_M4
 #include "esp_log.h"
 #endif
 /*
@@ -57,6 +57,7 @@
 #include "book_progress.h"
 #include "book_store.h"
 #include "book_file_path.h"
+#include "storage_scan_filter.h"
 #include "book_title.h"
 #include "book_ticket.h"
 #include "book_excerpt.h"
@@ -64,8 +65,14 @@
 #include "ui_home_clock.h"
 #include "ui_wallpaper.h"
 #include "ui_avatar.h"
+#if KIIKO_BOARD_MURPHY_M4
+#include "m4_project_platform.h"
+#include "m4_epdiy_compat/read_pico_pmu.h"
+#include "m4_epdiy_compat/read_pico_board.h"
+#else
 #include "read_pico_pmu.h"
 #include "read_pico_crashlog.h"
+#endif
 #include <math.h>
 #include "display.h"
 #include "display_main_waveform.h"
@@ -147,11 +154,43 @@ static bool s_avatar_ready,s_avatar_pending;
 static char s_avatar_path[288];
 static EpdRect s_pressed;
 static bool s_press_pending;
+#if KIIKO_BOARD_MURPHY_M4
+#define HOME_M4_CARD ((EpdRect){24,148,432,248})
+#define HOME_M4_CARD_HIT ((EpdRect){16,140,448,264})
+#define HOME_M4_COMPONENT ((EpdRect){24,414,200,286})
+#define HOME_M4_CALENDAR ((EpdRect){240,414,216,286})
+#define HOME_M4_COMPONENT_CONTENT ((EpdRect){38,446,172,196})
+#define HOME_M4_COMPONENT_CLOCK ((EpdRect){38,440,172,196})
+#define HOME_M4_CALENDAR_CONTENT ((EpdRect){252,448,192,194})
+#define HOME_M4_NAV_TOP 736
+#define HOME_M4_COMPONENT_PREVIEW ((EpdRect){24,680,432,48})
+#define HOME_M4_TIME_VALUE ((EpdRect){60,592,360,60})
+#define HOME_M4_GOAL_DEC ((EpdRect){34,526,48,48})
+#define HOME_M4_GOAL_INC ((EpdRect){398,526,48,48})
+#define HOME_M4_GOAL_SAVE ((EpdRect){24,654,432,52})
+#define HOME_M4_TIME_CLOCK ((EpdRect){74,216,332,332})
+#define HOME_M4_HOME_AVATAR ((EpdRect){398,46,44,44})
+#define HOME_M4_COVER ((EpdRect){42,202,88,120})
+static EpdRect continue_card_rect(void) { return HOME_M4_CARD; }
+static EpdRect continue_card_hit_rect(void) { return HOME_M4_CARD_HIT; }
+#else
+#define HOME_M4_COMPONENT_PREVIEW ((EpdRect){36,996,612,76})
 static EpdRect continue_card_rect(void) { return (EpdRect){36,184,612,378}; }
 static EpdRect continue_card_hit_rect(void) { return (EpdRect){24,172,636,402}; }
-static bool continue_card_pressed(void) { return s_press_pending && s_pressed.height == 378; }
+#endif
+static bool continue_card_pressed(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return s_press_pending && s_pressed.height == HOME_M4_CARD.height;
+#else
+    return s_press_pending && s_pressed.height == 378;
+#endif
+}
 static EpdRect control_feedback_area(EpdRect control) {
+#if KIIKO_BOARD_MURPHY_M4
+    return control.height == HOME_M4_CARD.height ? (EpdRect){42,214,104,142} : control;
+#else
     return control.height == 378 ? (EpdRect){56,270,184,252} : control;
+#endif
 }
 static bool s_reading_days_valid;
 static bool s_home_force_full_once;
@@ -178,7 +217,7 @@ static void clock_base_prepare(void){
 static home_book_t *book_at(int index);
 
 static bool is_book(const char *name) {
-    if (!name[0] || name[0] == '.' || !strncmp(name, "._", 2)) return false;
+    if (storage_name_is_os_metadata(name) || storage_file_is_temporary(name)) return false;
     return book_file_path_supported(name);
 }
 static void copy_title(char *dst, size_t cap, const char *src) {
@@ -255,7 +294,8 @@ static void scan_books(void) {
     read_pico_sd_info_t sd = {0};
     read_pico_sd_get_info(&sd);
     if (sd.mounted) {
-        if (!strcmp(app_settings_books_dir(), "/sdcard/books")) scan_root("/sdcard/book");
+        if (strcmp(app_settings_books_dir(), "/sdcard/book")) scan_root("/sdcard/book");
+        if (strcmp(app_settings_books_dir(), "/sdcard/books")) scan_root("/sdcard/books");
         scan_root(app_settings_books_dir());
     }
     if (book_store_flash_ready()) scan_root("/flash/books");
@@ -284,6 +324,20 @@ static void scan_books(void) {
         }
     }
 }
+
+#if KIIKO_BOARD_MURPHY_M4
+static void log_home_scan(const read_pico_sd_info_t *sd, int64_t elapsed_us) {
+    int visible = 0;
+    for (int i = 0; i < 7; ++i) visible += book_at(i)->path[0] != '\0';
+    ESP_LOGI("home_scan", "done sd=%s books_dir=%s visible=%d elapsed_ms=%lld",
+             sd->mounted ? "mounted" : "unavailable", app_settings_books_dir(), visible,
+             (long long)(elapsed_us / 1000));
+    for (int i = 0; i < 7; ++i) {
+        const home_book_t *book = book_at(i);
+        if (book->path[0]) ESP_LOGI("home_scan", "book[%d]=%s", i, book->path);
+    }
+}
+#endif
 
 static void refresh_progress(void) {
     for (int i = 0; i < 7; ++i) {
@@ -450,9 +504,27 @@ static void clock_draw_region(uint8_t *fb,EpdRect bounds,const struct tm *date,b
     ui_home_clock_trail_draw_region(fb,bounds,date,binary,style,clip,phase,trail->start,trail->steps);
 }
 static const char *component_name(app_home_component_t component) {return component==APP_HOME_FOLDER?"最近阅读书夹":ui_home_clock_name(clock_style(component));}
-static EpdRect time_clock_bounds(void) {return(EpdRect){122,275,460,503};}
-static EpdRect component_clock_bounds(void){return s_view==HOME_COMPONENT?(EpdRect){141,294,420,460}:(EpdRect){24,640,320,350};}
-static EpdRect component_clock_graphics(void){return s_view==HOME_COMPONENT?component_clock_bounds():(EpdRect){24,640,320,326};}
+static EpdRect time_clock_bounds(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return HOME_M4_TIME_CLOCK;
+#else
+    return (EpdRect){122,275,460,503};
+#endif
+}
+static EpdRect component_clock_bounds(void){
+#if KIIKO_BOARD_MURPHY_M4
+    return s_view==HOME_COMPONENT?(EpdRect){74,196,332,332}:(EpdRect){36,442,176,214};
+#else
+    return s_view==HOME_COMPONENT?(EpdRect){141,294,420,460}:(EpdRect){24,640,320,350};
+#endif
+}
+static EpdRect component_clock_graphics(void){
+#if KIIKO_BOARD_MURPHY_M4
+    return component_clock_bounds();
+#else
+    return s_view==HOME_COMPONENT?component_clock_bounds():(EpdRect){24,640,320,326};
+#endif
+}
 static bool visible_motion_clock(void){
     return(s_view==HOME_ROOT&&ui_home_clock_has_motion(clock_style(app_settings_home_component())))
 #if KIIKO_BOARD_METALIO47
@@ -624,6 +696,47 @@ static void render_root(uint8_t *fb) {
 #else
 #define HOME_STAGE(name) do {} while(0)
 #endif
+#if KIIKO_BOARD_MURPHY_M4
+    ui_nav_status(fb);ui_text(fb,24,68,34,"首页",EPD_DRAW_ALIGN_LEFT,false);
+    char value[80];unsigned seconds=today_seconds();
+    snprintf(value,sizeof(value),"%u 分钟",seconds/60);fit(value,18,150);label(fb,300,64,18,value,EPD_DRAW_ALIGN_RIGHT,0x30);
+    ring(fb,350,68,22,5,seconds,app_settings_home_goal_minutes()*60);
+    if(s_avatar_ready)ui_wallpaper_draw_avatar(fb,s_avatar,HOME_M4_HOME_AVATAR,22);
+    else {epd_fill_circle(420,68,22,0x30,fb);label(fb,420,68,20,"K",EPD_DRAW_ALIGN_CENTER,0xff);}
+    HOME_STAGE("header");
+    const uint8_t card_gray=0xff;
+    EpdRect card=HOME_M4_CARD; ui_root_card(fb,card,18); home_frame(fb,card,18);
+    label_on(fb,42,176,18,"最近阅读",EPD_DRAW_ALIGN_LEFT,0x40,card_gray);
+    ui_draw_separator(fb,198,42,396,0x30);
+    home_book_t *b=featured();
+    if(b->path[0]) {
+        draw_cover(fb,b,HOME_M4_COVER);
+        int rows=title_lines(fb,b->title,card_gray);
+        if(b->author[0]) { char author[128]; snprintf(author,sizeof(author),"%s",b->author); fit(author,15,270); label_on(fb,148,rows==2?270:250,15,author,EPD_DRAW_ALIGN_LEFT,0x20,card_gray); }
+        snprintf(value,sizeof(value),"已读 %u%%",b->has_progress?b->progress.pct:0);
+        label_on(fb,148,298,16,value,EPD_DRAW_ALIGN_LEFT,0x00,card_gray);
+        EpdRect track={148,318,268,4}; ui_fill_rect_fast(track,0xc0,fb);
+        track.width=268*(b->has_progress?b->progress.pct:0)/100; if(track.width)ui_fill_rect_fast(track,0x20,fb);
+    } else label_on(fb,240,276,17,"打开一本书后，会在这里继续阅读",EPD_DRAW_ALIGN_CENTER,0x40,card_gray);
+    HOME_STAGE("card");
+    EpdRect component=HOME_M4_COMPONENT, calendar_box=HOME_M4_CALENDAR;
+    ui_fill_round_rect(fb,component,14,UI_GRAY_WHITE); ui_fill_round_rect(fb,calendar_box,14,UI_GRAY_WHITE);
+    if(app_settings_home_component()==APP_HOME_FOLDER)
+        ui_home_folder_draw(fb,s_folder,s_folder_fast,HOME_M4_COMPONENT_CONTENT);
+    else
+        clock_draw_region(fb,HOME_M4_COMPONENT_CLOCK,&s_date,app_settings_main_fast_refresh(),
+                          clock_style(app_settings_home_component()),HOME_M4_COMPONENT_CONTENT,s_widget_phase);
+    label(fb,124,682,16,component_name(app_settings_home_component()),EPD_DRAW_ALIGN_CENTER,0x40);
+    if(s_reading_days_valid) {
+        snprintf(value,sizeof(value),"%d月%d日",s_date.tm_mon+1,s_date.tm_mday); label(fb,HOME_M4_CALENDAR_CONTENT.x,448,18,value,EPD_DRAW_ALIGN_LEFT,0);
+        static const char *const wd[]={"日","一","二","三","四","五","六"}; label(fb,HOME_M4_CALENDAR_CONTENT.x+HOME_M4_CALENDAR_CONTENT.width,448,16,wd[s_date.tm_wday],EPD_DRAW_ALIGN_RIGHT,0x40);
+        int start=(s_date.tm_wday+7-(s_date.tm_mday-1)%7)%7; int rows=(start+month_length(&s_date)+6)/7;
+        calendar(fb,HOME_M4_CALENDAR_CONTENT.x,486,HOME_M4_CALENDAR_CONTENT.width/7,
+                 rows==6?25:31,16,app_settings_home_goal_minutes()*60);
+    } else label(fb,348,536,16,"请先设置日期与时间",EPD_DRAW_ALIGN_CENTER,0x40);
+    label(fb,436,682,15,"· 已闭环",EPD_DRAW_ALIGN_RIGHT,0x40);
+    HOME_STAGE("widgets"); ui_nav_draw(fb,0); HOME_STAGE("nav");
+#else
     ui_nav_status(fb);ui_text(fb,36,91,52,"首页",EPD_DRAW_ALIGN_LEFT,false);
     char value[80];unsigned seconds=today_seconds();
     snprintf(value,sizeof(value),"%u 分钟",seconds/60);fit(value,24,180);label(fb,490,118,24,value,EPD_DRAW_ALIGN_RIGHT,0x30);
@@ -686,9 +799,33 @@ static void render_root(uint8_t *fb) {
     HOME_STAGE("calendar");
     ui_nav_draw(fb,0);
     HOME_STAGE("nav");
+#endif
 #undef HOME_STAGE
 }
 static void render_goal(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    header(fb,"月阅读记录"); char value[64];
+    snprintf(value,sizeof(value),s_reading_days_valid?"%d年%d月":"日期未设置",s_date.tm_year+1900,s_date.tm_mon+1);
+    label(fb,24,176,24,value,EPD_DRAW_ALIGN_LEFT,0x20);
+    ring(fb,394,188,24,5,today_seconds(),s_goal_draft*60);
+    calendar(fb,34,236,58,26,18,s_goal_draft*60);
+    label(fb,24,422,18,"今日阅读",EPD_DRAW_ALIGN_LEFT,0x30);
+    snprintf(value,sizeof(value),"%u 分钟",today_seconds()/60); label(fb,456,422,20,value,EPD_DRAW_ALIGN_RIGHT,0x00);
+    label(fb,24,458,18,"每日闭环目标",EPD_DRAW_ALIGN_LEFT,0x00);
+    label(fb,24,484,15,"达到目标的日期会显示下划线",EPD_DRAW_ALIGN_LEFT,0x50);
+    ui_fill_round_rect(fb,(EpdRect){24,516,432,64},18,0xe0); home_frame(fb,(EpdRect){24,516,432,64},18);
+    epd_fill_circle(58,550,24,0xff,fb); epd_fill_circle(422,550,24,0xff,fb);
+    circle_frame(fb,58,550,24); circle_frame(fb,422,550,24);
+    ui_fill_rect_fast((EpdRect){48,549,20,3},s_goal_draft==5?0xa0:0x20,fb);
+    ui_fill_rect_fast((EpdRect){412,549,20,3},s_goal_draft==180?0xa0:0x20,fb);
+    ui_fill_rect_fast((EpdRect){420,541,3,18},s_goal_draft==180?0xa0:0x20,fb);
+    snprintf(value,sizeof(value),"%u",s_goal_draft); label(fb,240,542,26,value,EPD_DRAW_ALIGN_CENTER,0x00);
+    label(fb,240,567,13,"分钟",EPD_DRAW_ALIGN_CENTER,0x50);
+    const unsigned presets[]={15,30,60};
+    for(unsigned i=0;i<3;++i){EpdRect box={24+(int)i*144,588,136,40};ui_fill_round_rect(fb,box,12,s_goal_draft==presets[i]?0xd0:0xf0);home_frame(fb,box,12);snprintf(value,sizeof(value),"%u 分钟",presets[i]);label(fb,box.x+68,612,16,value,EPD_DRAW_ALIGN_CENTER,0x00);}
+    if(s_save_error)label(fb,240,642,14,"保存未完成，请再试一次",EPD_DRAW_ALIGN_CENTER,0x20);
+    ui_fill_round_rect(fb,HOME_M4_GOAL_SAVE,14,0x20);label(fb,240,680,19,"保存",EPD_DRAW_ALIGN_CENTER,0xff);
+#else
     header(fb,"月阅读记录");char value[64];
     snprintf(value,sizeof(value),s_reading_days_valid?"%d年%d月":"日期未设置",s_date.tm_year+1900,s_date.tm_mon+1);
     label(fb,36,226,34,value,EPD_DRAW_ALIGN_LEFT,0);
@@ -714,16 +851,36 @@ static void render_goal(uint8_t *fb) {
     }
     if(s_save_error)label(fb,342,990,23,"保存未完成，请再试一次",EPD_DRAW_ALIGN_CENTER,0x30);
     ui_fill_round_rect(fb,(EpdRect){36,1008,612,72},28,0x20);label(fb,342,1044,28,"保存",EPD_DRAW_ALIGN_CENTER,0xff);
+#endif
 }
 static void render_component_controls(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    circle_frame(fb,54,342,24); circle_frame(fb,426,342,24);
+    ui_draw_icon(fb,54,342,26,UI_ICON_CHEVRON_LEFT,0x20); ui_draw_icon(fb,426,342,26,UI_ICON_CHEVRON_RIGHT,0x20);
+    bool current=s_component_browse==app_settings_home_component();
+    ui_fill_round_rect(fb,(EpdRect){24,680,432,48},14,s_press_pending?0xe0:0x20);
+    label(fb,240,704,19,current?"返回首页":"使用此样式",EPD_DRAW_ALIGN_CENTER,s_press_pending?0x20:0xff);
+#else
     circle_frame(fb,68,504,32);circle_frame(fb,616,504,32);
     ui_draw_icon(fb,68,504,34,UI_ICON_CHEVRON_LEFT,0x30);ui_draw_icon(fb,616,504,34,UI_ICON_CHEVRON_RIGHT,0x30);
     bool current=s_component_browse==app_settings_home_component();
     bool pressed=s_press_pending&&s_pressed.y==996;
     ui_fill_round_rect(fb,(EpdRect){36,996,612,76},38,pressed?0xe0:0x20);
     label(fb,342,1034,30,current?"返回首页":"使用此样式",EPD_DRAW_ALIGN_CENTER,pressed?0x20:0xff);
+#endif
 }
 static void render_components_body(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    if(s_component_browse==APP_HOME_FOLDER)ui_home_folder_draw(fb,s_folder,s_folder_fast,(EpdRect){74,196,332,360});
+    else clock_draw_region(fb,(EpdRect){74,196,332,360},&s_date,app_settings_main_fast_refresh(),clock_style(s_component_browse),(EpdRect){74,196,332,330},s_widget_phase);
+    label(fb,240,584,22,component_name(s_component_browse),EPD_DRAW_ALIGN_CENTER,0x00);
+    unsigned selected=component_index(s_component_browse);
+    static const char *const details[]={"圆形表盘，十二个月相刻度","圆滑短底座，清晰数字表盘","短时针、长分针，圆点为秒针","猫眼左右转动，没有尾巴","柔软轮廓，弯曲的罗马数字","深灰放射图案，白色指针配细描边","尖屋顶、圆形开口，四个数字刻度","三本最近阅读，透过磨砂书夹显示"};
+    label(fb,240,612,15,details[selected],EPD_DRAW_ALIGN_CENTER,0x50);
+    for(unsigned i=0;i<HOME_COMPONENT_OPTIONS;++i)epd_fill_circle(240-(HOME_COMPONENT_OPTIONS-1)*9+i*18,642,i==selected?5:3,i==selected?0x00:0x90,fb);
+    char value[24]; snprintf(value,sizeof(value),"%u / %u",selected+1,(unsigned)HOME_COMPONENT_OPTIONS); label(fb,240,664,16,value,EPD_DRAW_ALIGN_CENTER,0x50);
+    render_component_controls(fb);
+#else
     if(s_component_browse==APP_HOME_FOLDER)ui_home_folder_draw(fb,s_folder,s_folder_fast,(EpdRect){132,282,420,459});
     else {
 #if KIIKO_BOARD_METALIO47
@@ -742,17 +899,36 @@ static void render_components_body(uint8_t *fb) {
     if(s_save_error)label(fb,342,1008,23,"保存未完成，请再试一次",EPD_DRAW_ALIGN_CENTER,0x30);
     else if(current)label(fb,342,1008,23,"当前使用",EPD_DRAW_ALIGN_CENTER,0x50);
     render_component_controls(fb);
+#endif
 }
 static void render_components(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    header(fb,"首页组件"); label(fb,24,176,18,"选择你喜欢的样式",EPD_DRAW_ALIGN_LEFT,0x50); render_components_body(fb);
+#else
     header(fb,"首页组件");label(fb,36,195,24,"选择你喜欢的样式",EPD_DRAW_ALIGN_LEFT,0x60);
     render_components_body(fb);
+#endif
 }
 static void render_time_value(uint8_t *fb,const struct tm *date) {
+#if KIIKO_BOARD_MURPHY_M4
+    char value[18]; if(s_reading_days_valid)snprintf(value,sizeof(value),"%02d:%02d:%02d",date->tm_hour,date->tm_min,date->tm_sec); else snprintf(value,sizeof(value),"--:--:--");
+    int px=44; while(px>28&&ui_text_fixed_width_px(px,value)>360)--px; ui_fill_rect_fast((EpdRect){60,592,360,60},0xff,fb); label(fb,240,622,px,value,EPD_DRAW_ALIGN_CENTER,0x00);
+#else
     char value[18];if(s_reading_days_valid)snprintf(value,sizeof(value),"%02d:%02d:%02d",date->tm_hour,date->tm_min,date->tm_sec);else snprintf(value,sizeof(value),"--:--:--");
     int px=72;while(px>36&&ui_text_fixed_width_px(px,value)>540)--px;
     ui_fill_rect_fast((EpdRect){72,840,540,98},0xff,fb);label(fb,342,884,px,value,EPD_DRAW_ALIGN_CENTER,0);
+#endif
 }
 static void render_time(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    header(fb,"时间"); char value[64]; if(s_reading_days_valid)snprintf(value,sizeof(value),"%d年%d月%d日",s_date.tm_year+1900,s_date.tm_mon+1,s_date.tm_mday); else snprintf(value,sizeof(value),"请先设置日期与时间");
+    label(fb,240,178,20,value,EPD_DRAW_ALIGN_CENTER,0x50);
+    clock_draw_region(fb,(EpdRect){74,216,332,332},&s_date,app_settings_main_fast_refresh(),clock_style(app_settings_home_component()),(EpdRect){74,216,332,332},s_time_phase);
+    label(fb,240,570,20,component_name(app_settings_home_component()),EPD_DRAW_ALIGN_CENTER,0x20); render_time_value(fb,&s_date);
+    label(fb,240,650,15,"北京时间 · 24小时制",EPD_DRAW_ALIGN_CENTER,0x50);
+    ui_fill_round_rect(fb,HOME_M4_COMPONENT_PREVIEW,14,0x20);
+    label(fb,240,704,18,"切换时钟样式",EPD_DRAW_ALIGN_CENTER,0xff);
+#else
     header(fb,"时间");char value[64];
     if(s_reading_days_valid)snprintf(value,sizeof(value),"%d年%d月%d日",s_date.tm_year+1900,s_date.tm_mon+1,s_date.tm_mday);else snprintf(value,sizeof(value),"请先设置日期与时间");
     label(fb,342,219,30,value,EPD_DRAW_ALIGN_CENTER,0x50);
@@ -761,12 +937,18 @@ static void render_time(uint8_t *fb) {
     render_time_value(fb,&s_date);label(fb,342,975,23,"北京时间 · 24小时制",EPD_DRAW_ALIGN_CENTER,0x60);
     bool pressed=s_press_pending&&s_pressed.y==996;
     ui_fill_round_rect(fb,(EpdRect){36,996,612,76},38,pressed?0xe0:0x20);label(fb,342,1034,30,"切换时钟样式",EPD_DRAW_ALIGN_CENTER,pressed?0x20:0xff);
+#endif
 }
 static void render(app_ctx_t *ctx,uint8_t *fb) {
     (void)ctx;ui_clear_page(fb);ui_fill_rect_fast((EpdRect){0,0,UI_LOCK_WIDTH,UI_LOCK_HEIGHT},0xff,fb);
     if(s_view==HOME_GOAL){s_widget_trail.valid=s_time_trail.valid=false;}
     s_widget_phase=s_time_phase=clock_phase_now(&s_date);
-    if(s_view==HOME_ROOT){ui_root_background(fb);ui_fill_round_rect(fb,(EpdRect){24,632,320,374},24,UI_GRAY_WHITE);ui_fill_round_rect(fb,(EpdRect){354,632,300,374},24,UI_GRAY_WHITE);render_root(fb);}else if(s_view==HOME_GOAL)render_goal(fb);else if(s_view==HOME_TIME)render_time(fb);else render_components(fb);
+    if(s_view==HOME_ROOT){ui_root_background(fb);
+#if !KIIKO_BOARD_MURPHY_M4
+        ui_fill_round_rect(fb,(EpdRect){24,632,320,374},24,UI_GRAY_WHITE);ui_fill_round_rect(fb,(EpdRect){354,632,300,374},24,UI_GRAY_WHITE);
+#endif
+        render_root(fb);
+    }else if(s_view==HOME_GOAL)render_goal(fb);else if(s_view==HOME_TIME)render_time(fb);else render_components(fb);
     if(s_press_pending && !continue_card_pressed())ui_draw_selected_round_rect(fb,s_pressed,s_pressed.width==60?30:s_pressed.width==64?32:s_pressed.width==86?43:s_pressed.height==76?38:20);
     if(s_view!=HOME_ROOT)ui_nav_draw(fb,0);
 }
@@ -813,7 +995,13 @@ static bool present(app_ctx_t *ctx,app_redraw_t redraw) {
         s_time_pending=false;bool repair=s_time_stamp<0;bool whole=repair||s_time_date.tm_min!=s_date.tm_min||s_time_date.tm_hour!=s_date.tm_hour;
         ui_home_clock_style_t style=clock_style(app_settings_home_component());
         EpdRect changes={0};
-        if(s_time_stamp!=date_stamp(&s_time_date)){render_time_value(ctx->fb,&s_time_date);changes=(EpdRect){72,840,540,98};}
+        if(s_time_stamp!=date_stamp(&s_time_date)){render_time_value(ctx->fb,&s_time_date);changes=
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_TIME_VALUE
+#else
+            (EpdRect){72,840,540,98}
+#endif
+            ;}
         if(whole||ui_home_clock_has_motion(style)){
             EpdRect box=time_clock_bounds();bool skipped=style==UI_HOME_CLOCK_KEHAI&&(s_time_phase+600-s_time_phase_shown)%600>20;
             EpdRect dirty=whole||skipped?box:ui_home_clock_motion_area(box,s_time_phase_shown,s_time_phase,style);
@@ -893,7 +1081,14 @@ static void on_enter(app_ctx_t *ctx) {
     else {
         memset(&s_current,0,sizeof(s_current));memset(s_recent,0,sizeof(s_recent));s_scan_pending=!same;
         if(s_scan_pending) read_pico_sd_start_probe();
+#if KIIKO_BOARD_MURPHY_M4
+        const int64_t scan_started_us = esp_timer_get_time();
+#endif
         scan_books();
+#if KIIKO_BOARD_MURPHY_M4
+        log_home_scan(&sd, esp_timer_get_time() - scan_started_us);
+        if (error != ESP_ERR_NOT_FINISHED) s_scan_pending = false;
+#endif
         if(same||error!=ESP_ERR_NOT_FINISHED)remember_scan_state(&sd);
     }
     if(!same||changed)restore_cover_cache();
@@ -927,7 +1122,14 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
         if(info.mounted) {
             s_cover_generation=book_cover_jobs_begin();
             memset(&s_current,0,sizeof(s_current));memset(s_recent,0,sizeof(s_recent));s_cover_next=0;
-            scan_books();restore_cover_cache();remember_scan_state(&info);refresh_excerpt();avatar_prepare_state();s_folder_attempted=false;
+#if KIIKO_BOARD_MURPHY_M4
+            const int64_t scan_started_us = esp_timer_get_time();
+#endif
+            scan_books();
+#if KIIKO_BOARD_MURPHY_M4
+            log_home_scan(&info, esp_timer_get_time() - scan_started_us);
+#endif
+            restore_cover_cache();remember_scan_state(&info);refresh_excerpt();avatar_prepare_state();s_folder_attempted=false;
             free(s_folder);s_folder=NULL;return APP_REDRAW_PAGE;
         }remember_scan_state(&info);
     }
@@ -935,11 +1137,23 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
         ui_avatar_state_t state=ui_avatar_poll(s_avatar_path,60,s_avatar);
         s_avatar_pending=state==UI_AVATAR_PENDING;
         s_avatar_ready=state==UI_AVATAR_READY;
-        if(s_avatar_ready&&s_view==HOME_ROOT){s_area=(EpdRect){588,88,60,60};return APP_REDRAW_AREA;}
+        if(s_avatar_ready&&s_view==HOME_ROOT){s_area=
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_HOME_AVATAR
+#else
+            (EpdRect){588,88,60,60}
+#endif
+            ;return APP_REDRAW_AREA;}
     }
         if(s_view==HOME_ROOT&&s_cover_next==0){
             s_cover_next=1;home_book_t *b=featured();
-            if(b->path[0]&&!b->cover){int slot=b==&s_current?0:(int)(b-s_recent)+1;if(load_cover(b,slot)){s_area=(EpdRect){60,278,176,240};return APP_REDRAW_AREA;}if(s_cover_waiting)s_cover_next=0;}
+            if(b->path[0]&&!b->cover){int slot=b==&s_current?0:(int)(b-s_recent)+1;if(load_cover(b,slot)){s_area=
+#if KIIKO_BOARD_MURPHY_M4
+                HOME_M4_COVER
+#else
+                (EpdRect){60,278,176,240}
+#endif
+                ;return APP_REDRAW_AREA;}if(s_cover_waiting)s_cover_next=0;}
         }
     }
     if(s_view==HOME_COMPONENT&&s_component_pending){s_area=s_component_dirty;return APP_REDRAW_AREA;}
@@ -976,7 +1190,13 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
         unsigned i=s_cover_next++;home_book_t *b=i?books[i-1]:featured();
         if(b->path[0]&&!b->cover) {
             int slot=b==&s_current?0:(int)(b-s_recent)+1;
-            if(load_cover(b,slot)&&!i&&s_view==HOME_ROOT){s_area=(EpdRect){60,278,176,240};return APP_REDRAW_AREA;}
+            if(load_cover(b,slot)&&!i&&s_view==HOME_ROOT){s_area=
+#if KIIKO_BOARD_MURPHY_M4
+                HOME_M4_COVER
+#else
+                (EpdRect){60,278,176,240}
+#endif
+                ;return APP_REDRAW_AREA;}
             if(s_cover_waiting)--s_cover_next;
         }
         return APP_REDRAW_NONE;
@@ -985,7 +1205,13 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
     if(needs_folder&&!s_folder&&!s_folder_attempted) {
         if(prepare_folder()){
             if(folder_preview){s_component_pending=true;s_area=s_component_dirty=(EpdRect){36,260,612,812};}
-            else s_area=(EpdRect){24,604,320,350};
+            else s_area=
+#if KIIKO_BOARD_MURPHY_M4
+                (EpdRect){24,414,200,286}
+#else
+                (EpdRect){24,604,320,350}
+#endif
+                ;
             return APP_REDRAW_AREA;
         }
         s_folder_attempted=true;
@@ -996,17 +1222,41 @@ static bool hit(EpdRect r,int x,int y) {return x>=r.x&&x<r.x+r.width&&y>=r.y&&y<
 static EpdRect control(int x,int y) {
     if(s_view==HOME_ROOT) {
         if(featured()->path[0] && hit(continue_card_hit_rect(),x,y))return continue_card_rect();
+#if KIIKO_BOARD_MURPHY_M4
+        if(hit(HOME_M4_HOME_AVATAR,x,y))return HOME_M4_HOME_AVATAR;
+        if(hit(HOME_M4_COMPONENT,x,y))return HOME_M4_COMPONENT;
+        if(hit(HOME_M4_CALENDAR,x,y))return HOME_M4_CALENDAR;
+#else
         if(hit((EpdRect){510,88,60,60},x,y))return(EpdRect){510,88,60,60};
+#endif
     }else if(hit((EpdRect){36,78,60,60},x,y))return(EpdRect){0}; // 共享圆圈反馈负责题头返回，避免再叠错位框。/ Shared circle feedback owns header backs; do not add a shifted frame.
     if(s_view==HOME_COMPONENT){
+#if KIIKO_BOARD_MURPHY_M4
+        if(hit((EpdRect){30,318,48,48},x,y))return(EpdRect){30,318,48,48};
+        if(hit((EpdRect){402,318,48,48},x,y))return(EpdRect){402,318,48,48};
+        if(hit(HOME_M4_COMPONENT_PREVIEW,x,y))return HOME_M4_COMPONENT_PREVIEW;
+#else
         if(hit((EpdRect){36,472,64,64},x,y))return(EpdRect){36,472,64,64};
         if(hit((EpdRect){584,472,64,64},x,y))return(EpdRect){584,472,64,64};
+#endif
     }
-    if((s_view==HOME_COMPONENT||s_view==HOME_TIME)&&hit((EpdRect){36,996,612,76},x,y))return(EpdRect){36,996,612,76};
+    if((s_view==HOME_COMPONENT||s_view==HOME_TIME)&&hit(
+#if KIIKO_BOARD_MURPHY_M4
+       HOME_M4_COMPONENT_PREVIEW
+#else
+       (EpdRect){36,996,612,76}
+#endif
+       ,x,y))return HOME_M4_COMPONENT_PREVIEW;
     if(s_view==HOME_GOAL) {
+#if KIIKO_BOARD_MURPHY_M4
+        if(hit(HOME_M4_GOAL_DEC,x,y))return HOME_M4_GOAL_DEC;
+        if(hit(HOME_M4_GOAL_INC,x,y))return HOME_M4_GOAL_INC;
+        if(hit(HOME_M4_GOAL_SAVE,x,y))return HOME_M4_GOAL_SAVE;
+#else
         if(hit((EpdRect){56,834,86,86},x,y))return(EpdRect){56,834,86,86};
         if(hit((EpdRect){542,834,86,86},x,y))return(EpdRect){542,834,86,86};
         if(hit((EpdRect){36,1008,612,72},x,y))return(EpdRect){36,1008,612,72};
+#endif
     }
     return(EpdRect){0};
 }
@@ -1029,13 +1279,31 @@ static app_redraw_t on_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
 #if KIIKO_BOARD_METALIO47
     s_component_warm_after_ms=ctx->now_ms+600;
 #endif
-    if(ev->type==UI_GESTURE_LONG_PRESS&&s_view==HOME_ROOT&&hit((EpdRect){24,640,320,365},ev->x0,ev->y0)) {
+    if(ev->type==UI_GESTURE_LONG_PRESS&&s_view==HOME_ROOT&&hit(
+#if KIIKO_BOARD_MURPHY_M4
+       HOME_M4_COMPONENT
+#else
+       (EpdRect){24,640,320,365}
+#endif
+       ,ev->x0,ev->y0)) {
         s_component_browse=app_settings_home_component();s_view=HOME_COMPONENT;s_save_error=false;return APP_REDRAW_PAGE;
     }
     if(s_view==HOME_COMPONENT&&ev->y0>=250&&ev->y0<970){
         int direction=ev->type==UI_GESTURE_SWIPE_L?1:ev->type==UI_GESTURE_SWIPE_R?-1:0;
-        if(ev->type==UI_GESTURE_TAP&&hit((EpdRect){36,472,64,64},ev->x0,ev->y0))direction=-1;
-        if(ev->type==UI_GESTURE_TAP&&hit((EpdRect){584,472,64,64},ev->x0,ev->y0))direction=1;
+        if(ev->type==UI_GESTURE_TAP&&hit(
+#if KIIKO_BOARD_MURPHY_M4
+            (EpdRect){30,318,48,48}
+#else
+            (EpdRect){36,472,64,64}
+#endif
+            ,ev->x0,ev->y0))direction=-1;
+        if(ev->type==UI_GESTURE_TAP&&hit(
+#if KIIKO_BOARD_MURPHY_M4
+            (EpdRect){402,318,48,48}
+#else
+            (EpdRect){584,472,64,64}
+#endif
+            ,ev->x0,ev->y0))direction=1;
         if(direction){
             unsigned index=component_index(s_component_browse);
 #if KIIKO_BOARD_METALIO47
@@ -1043,7 +1311,9 @@ static app_redraw_t on_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
 #endif
             s_component_browse=s_components[(index+HOME_COMPONENT_OPTIONS+direction)%HOME_COMPONENT_OPTIONS];
             s_save_error=false;s_widget_pending=false;
-#if KIIKO_BOARD_METALIO47
+#if KIIKO_BOARD_MURPHY_M4
+            EpdRect next={24,176,432,552};
+#elif KIIKO_BOARD_METALIO47
             // 只有“使用此样式/返回首页”改变或清理保存错误时才包含底部按钮。
             // Include the apply button only when its label changes or a save error must be cleared.
             bool controls=had_error||was_current!=(s_component_browse==app_settings_home_component());
@@ -1060,29 +1330,77 @@ static app_redraw_t on_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
     int x=ev->x0,y=ev->y0;
     if(s_view!=HOME_ROOT&&hit((EpdRect){36,78,60,60},x,y)) {s_view=HOME_ROOT;s_save_error=false;return APP_REDRAW_PAGE;}
     if(s_view==HOME_COMPONENT) {
-        if(hit((EpdRect){36,996,612,76},x,y)) {
+        if(hit(
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_COMPONENT_PREVIEW
+#else
+            (EpdRect){36,996,612,76}
+#endif
+            ,x,y)) {
             s_save_error=s_component_browse!=app_settings_home_component()&&app_settings_set_home_component(s_component_browse)!=ESP_OK;
             if(!s_save_error) s_view=HOME_ROOT;
             return APP_REDRAW_PAGE;
         }
     }else if(s_view==HOME_TIME){
-        if(hit((EpdRect){36,996,612,76},x,y)){s_view=HOME_COMPONENT;s_component_browse=app_settings_home_component();s_save_error=false;return APP_REDRAW_PAGE;}
+        if(hit(
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_COMPONENT_PREVIEW
+#else
+            (EpdRect){36,996,612,76}
+#endif
+            ,x,y)){s_view=HOME_COMPONENT;s_component_browse=app_settings_home_component();s_save_error=false;return APP_REDRAW_PAGE;}
     }else if(s_view==HOME_GOAL) {
         uint8_t old=s_goal_draft;
-        if(hit((EpdRect){56,834,86,86},x,y)&&s_goal_draft>5)s_goal_draft-=5;
-        else if(hit((EpdRect){542,834,86,86},x,y)&&s_goal_draft<180)s_goal_draft+=5;
-        else if(hit((EpdRect){36,1008,612,72},x,y)) {
+        if(hit(
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_GOAL_DEC
+#else
+            (EpdRect){56,834,86,86}
+#endif
+            ,x,y)&&s_goal_draft>5)s_goal_draft-=5;
+        else if(hit(
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_GOAL_INC
+#else
+            (EpdRect){542,834,86,86}
+#endif
+            ,x,y)&&s_goal_draft<180)s_goal_draft+=5;
+        else if(hit(
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_GOAL_SAVE
+#else
+            (EpdRect){36,1008,612,72}
+#endif
+            ,x,y)) {
             s_save_error=app_settings_set_home_goal_minutes(s_goal_draft)!=ESP_OK;if(!s_save_error) s_view=HOME_ROOT;
             return APP_REDRAW_PAGE;
         }else {const uint8_t presets[]={15,30,60};for(int i=0;i<3;++i)if(hit((EpdRect){36+i*214,920,184,56},x,y))s_goal_draft=presets[i];}
-        if(old!=s_goal_draft){s_area=(EpdRect){36,198,612,830};return APP_REDRAW_AREA;}
+        if(old!=s_goal_draft){s_area=
+#if KIIKO_BOARD_MURPHY_M4
+            (EpdRect){24,176,432,552}
+#else
+            (EpdRect){36,198,612,830}
+#endif
+            ;return APP_REDRAW_AREA;}
     }else {
         int tab=ui_nav_hit(x,y);if(tab>=0){ui_nav_request(ctx,tab);return APP_REDRAW_NONE;}
-        if(hit((EpdRect){24,640,320,365},x,y)){
+        if(hit(
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_COMPONENT
+#else
+            (EpdRect){24,640,320,365}
+#endif
+            ,x,y)){
             if(app_settings_home_component()==APP_HOME_FOLDER){ui_nav_request(ctx,1);return APP_REDRAW_NONE;}
             s_time_trail.valid=false;s_view=HOME_TIME;s_time_pending=false;s_time_stamp=-1;refresh_days();return APP_REDRAW_PAGE;
         }
-        if(hit((EpdRect){354,640,294,365},x,y)||hit((EpdRect){510,88,60,60},x,y)) {
+        if(hit(
+#if KIIKO_BOARD_MURPHY_M4
+            HOME_M4_CALENDAR
+#else
+            (EpdRect){354,640,294,365}
+#endif
+            ,x,y)||hit((EpdRect){510,88,60,60},x,y)) {
             refresh_days();s_goal_draft=app_settings_home_goal_minutes();s_view=HOME_GOAL;s_save_error=false;return APP_REDRAW_PAGE;
         }
         if(hit(continue_card_hit_rect(),x,y)) {

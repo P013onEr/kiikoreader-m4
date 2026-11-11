@@ -48,7 +48,7 @@ static const char* system_path(char fallback[TTF_FONT_PATH_MAX]) {
         return TTF_FONT_BUILTIN;
     struct stat st;
     if (stat(fallback, &st) == 0 && S_ISREG(st.st_mode)) return fallback;
-    if (!ttf_font_count()) ttf_font_scan();
+    if (!ttf_font_scan_complete()) ttf_font_scan();
     const ttf_font_item_t *item = ttf_font_item(0);
     return item && font_file(item->path, &st) ? item->path : TTF_FONT_BUILTIN;
 }

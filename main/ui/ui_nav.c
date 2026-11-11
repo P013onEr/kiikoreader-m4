@@ -38,11 +38,34 @@
 #define UI_NAV_BACK_ICON_PX 48
 #define UI_NAV_BOLT_ICON_PX 26
 #define UI_NAV_NETWORK_ICON_PX 28
+#if KIIKO_BOARD_MURPHY_M4
+#define UI_STATUS_TIME_PX 18
+#define UI_STATUS_PERCENT_PX 18
+#define UI_STATUS_SIGNATURE_PX 16
+#define UI_STATUS_TIME_X 20
+#define UI_STATUS_CENTER_Y 38
+#define UI_STATUS_SIGNATURE_CENTER_X 194
+#define UI_STATUS_SIGNATURE_MAX_WIDTH 92
+#define UI_STATUS_WIFI_CENTER_X 292
+#define UI_STATUS_BLE_CENTER_X 318
+#define UI_STATUS_BATTERY_X 350
+#define UI_STATUS_PERCENT_RIGHT 466
+#else
 #define UI_STATUS_TIME_PX 28
 #define UI_STATUS_PERCENT_PX 28
 #define UI_STATUS_SIGNATURE_PX 26
+#define UI_STATUS_TIME_X 36
+#define UI_STATUS_CENTER_Y 40
+#define UI_STATUS_SIGNATURE_CENTER_X (UI_LOCK_WIDTH / 2)
+#define UI_STATUS_SIGNATURE_MAX_WIDTH 280
+#define UI_STATUS_WIFI_CENTER_X 0
+#define UI_STATUS_BLE_CENTER_X 0
+#define UI_STATUS_BATTERY_X 606
+#define UI_STATUS_PERCENT_RIGHT 595
+#endif
 
 static bool s_status_reading;
+static int64_t s_status_clock_minute = INT64_MIN;
 static struct {
     bool ready;
     char signature[96], face[TTF_FONT_PATH_MAX], chosen[TTF_FONT_PATH_MAX];
@@ -119,7 +142,11 @@ static int power_signature(void) {
 EpdRect ui_nav_status_area(void) { return (EpdRect){0,12,UI_LOCK_WIDTH,56}; }
 
 bool ui_nav_refresh_power(uint8_t *fb) {
-    if (!ui_status_visible(fb) || s_power_signature==power_signature()) return false;
+    const int64_t minute=ui_nav_clock_minute();
+    const int power=power_signature();
+    if (!ui_status_visible(fb) || (s_power_signature==power && s_status_clock_minute==minute)) return false;
+    s_power_signature=power;
+    s_status_clock_minute=minute;
     epd_fill_rect(ui_nav_status_area(),UI_GRAY_WHITE,fb);
     ui_nav_status(fb);
     return true;
@@ -188,16 +215,16 @@ static void clock_text(char *clock, size_t capacity) {
 }
 void ui_nav_clock_draw(uint8_t *fb) {
     char clock[12]; clock_text(clock,sizeof(clock));
-    ui_text_fixed_vc(fb,36,40,UI_STATUS_TIME_PX,clock,EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_fixed_vc(fb,UI_STATUS_TIME_X,UI_STATUS_CENTER_Y,UI_STATUS_TIME_PX,clock,EPD_DRAW_ALIGN_LEFT,false);
 }
 void ui_nav_status(uint8_t *fb) {
     status_prepare_metrics();
     const pmu_snapshot_t *pmu = read_pico_pmu_get();
     char clock[12]; clock_text(clock,sizeof(clock));
-    const int status_center_y = 40;
+    const int status_center_y = UI_STATUS_CENTER_Y;
     // 固定状态栏字号，让系统字体缩放时文字仍与图标共用中心线。
     // Keep status type fixed so text and glyphs share one centerline at every system font scale.
-    ui_text_fixed_vc(fb, 36, status_center_y, UI_STATUS_TIME_PX, clock, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_fixed_vc(fb, UI_STATUS_TIME_X, status_center_y, UI_STATUS_TIME_PX, clock, EPD_DRAW_ALIGN_LEFT, false);
     read_pico_transfer_status_t network = {0};
     read_pico_transfer_get_status(&network);
     const bool wifi_visible = network.network_ready && network.mode == READ_PICO_TRANSFER_MODE_STA;
@@ -207,51 +234,106 @@ void ui_nav_status(uint8_t *fb) {
     if (gauge_percent >= 0) snprintf(percent, sizeof(percent), "%u%%", (unsigned)gauge_percent);
     // 按实际百分比宽度排列网络图标，留 10 像素间隔；墨色与电池相同。
     // Place the network marks 10 px before the measured percentage, using the battery ink.
-    const int percent_left = 595 - status_number_width(percent);
+#if KIIKO_BOARD_MURPHY_M4
+    const int percent_left = UI_STATUS_PERCENT_RIGHT - status_number_width(percent);
+    const int wifi_center = UI_STATUS_WIFI_CENTER_X;
+    const int bluetooth_center = UI_STATUS_BLE_CENTER_X;
+#else
+    const int percent_left = UI_STATUS_PERCENT_RIGHT - status_number_width(percent);
     const int network_right = percent_left - 10;
     const int wifi_center = network_right - UI_NAV_NETWORK_ICON_PX / 2;
     const int bluetooth_center = wifi_center - (wifi_visible ? UI_NAV_NETWORK_ICON_PX + 8 : 0);
-    int signature_width = 280;
-    const int clock_right = 36 + status_number_width(clock);
-    int available = 2 * (UI_LOCK_WIDTH / 2 - clock_right - 12);
+#endif
+    int signature_width = UI_STATUS_SIGNATURE_MAX_WIDTH;
+    const int clock_right = UI_STATUS_TIME_X + status_number_width(clock);
+    int available = 2 * (UI_STATUS_SIGNATURE_CENTER_X - clock_right - 12);
     if (available < signature_width) signature_width = available > 0 ? available : 0;
+#if KIIKO_BOARD_MURPHY_M4
+    int group_left = bluetooth_visible ? bluetooth_center - UI_NAV_NETWORK_ICON_PX / 2
+        : wifi_visible ? wifi_center - UI_NAV_NETWORK_ICON_PX / 2 : UI_STATUS_BATTERY_X;
+#else
     int group_left = percent_left;
     if (wifi_visible || bluetooth_visible) {
         group_left = (bluetooth_visible ? bluetooth_center : wifi_center) - UI_NAV_NETWORK_ICON_PX / 2;
     }
-    available = 2 * (group_left - 12 - UI_LOCK_WIDTH / 2);
+#endif
+    available = 2 * (group_left - 12 - UI_STATUS_SIGNATURE_CENTER_X);
     if (available < signature_width) signature_width = available > 0 ? available : 0;
     char signature[96];
     snprintf(signature, sizeof(signature), "%s", app_settings_status_signature());
     status_fit_signature(signature, signature_width);
-    if (signature[0]) ui_text_fixed_vc(fb, UI_LOCK_WIDTH / 2, status_center_y, UI_STATUS_SIGNATURE_PX,
+    if (signature[0]) ui_text_fixed_vc(fb, UI_STATUS_SIGNATURE_CENTER_X, status_center_y, UI_STATUS_SIGNATURE_PX,
                                       signature, EPD_DRAW_ALIGN_CENTER, false);
-    if (wifi_visible) ui_nav_wifi_icon(fb, wifi_center, status_center_y, UI_NAV_NETWORK_ICON_PX, UI_GRAY_BLACK);
+    if (wifi_visible) ui_nav_wifi_icon(fb, wifi_center, status_center_y,
+#if KIIKO_BOARD_MURPHY_M4
+                                       20,
+#else
+                                       UI_NAV_NETWORK_ICON_PX,
+#endif
+                                       UI_GRAY_BLACK);
     if (bluetooth_visible)
-        ui_draw_icon(fb, bluetooth_center, status_center_y, UI_NAV_NETWORK_ICON_PX,
+        ui_draw_icon(fb, bluetooth_center, status_center_y,
+#if KIIKO_BOARD_MURPHY_M4
+                     20,
+#else
+                     UI_NAV_NETWORK_ICON_PX,
+#endif
                      UI_ICON_BLUETOOTH, UI_GRAY_BLACK);
-    EpdRect battery = {606, status_center_y - 11, 40, 22};
+#if KIIKO_BOARD_MURPHY_M4
+    EpdRect battery = {UI_STATUS_BATTERY_X, status_center_y - 8, 32, 16};
+#else
+    EpdRect battery = {UI_STATUS_BATTERY_X, status_center_y - 11, 40, 22};
+#endif
     ui_draw_round_rect(fb, battery, 6, UI_GRAY_BLACK);
-    ui_fill_round_rect(fb, (EpdRect){648, status_center_y - 4, 5, 8}, 2, UI_GRAY_BLACK);
+    ui_fill_round_rect(fb, (EpdRect){UI_STATUS_BATTERY_X + battery.width + 2,
+#if KIIKO_BOARD_MURPHY_M4
+                                     status_center_y - 3, 3, 6
+#else
+                                     status_center_y - 4, 5, 8
+#endif
+                                     }, 2, UI_GRAY_BLACK);
     bool charging = pmu_battery_charging(pmu);
     if (gauge_percent >= 0) {
-        int width = (31 * gauge_percent + 50) / 100;
-        if (width > 0) ui_fill_round_rect(fb, (EpdRect){610, status_center_y - 7, width, 14}, 4, UI_GRAY_BLACK);
+        int width = ((KIIKO_BOARD_MURPHY_M4 ? 25 : 31) * gauge_percent + 50) / 100;
+        if (width > 0) ui_fill_round_rect(fb, (EpdRect){UI_STATUS_BATTERY_X + 3,
+#if KIIKO_BOARD_MURPHY_M4
+                                                        status_center_y - 5, width, 10
+#else
+                                                        status_center_y - 7, width, 14
+#endif
+                                                        }, 4, UI_GRAY_BLACK);
     }
     if (charging) {
         // 固定黑底与白色闪电描边，0%时也有完整对比，不依赖电量填充宽度。
         // A fixed black well and white bolt outline retain contrast even at0%, independent of the charge fill.
-        ui_fill_round_rect(fb,(EpdRect){614,status_center_y-10,26,20},3,UI_GRAY_BLACK);
-        ui_draw_icon(fb, 627, status_center_y, 22, UI_ICON_ZAP, UI_GRAY_WHITE);
+        ui_fill_round_rect(fb,(EpdRect){UI_STATUS_BATTERY_X + 5,
+#if KIIKO_BOARD_MURPHY_M4
+                                        status_center_y - 7, 20, 14
+#else
+                                        status_center_y - 10, 26, 20
+#endif
+                                        },3,UI_GRAY_BLACK);
+        ui_draw_icon(fb, UI_STATUS_BATTERY_X + (KIIKO_BOARD_MURPHY_M4 ? 15 : 21), status_center_y,
+                     KIIKO_BOARD_MURPHY_M4 ? 15 : 22, UI_ICON_ZAP, UI_GRAY_WHITE);
 
     }
-    ui_text_fixed_vc(fb, 595, status_center_y, UI_STATUS_PERCENT_PX, percent, EPD_DRAW_ALIGN_RIGHT, false);
+    ui_text_fixed_vc(fb, UI_STATUS_PERCENT_RIGHT, status_center_y, UI_STATUS_PERCENT_PX, percent, EPD_DRAW_ALIGN_RIGHT, false);
     ui_status_mark_visible(fb);
     s_power_signature=power_signature();
+    s_status_clock_minute=ui_nav_clock_minute();
 }
 
 int ui_nav_hit(uint16_t x, uint16_t y) {
-    if (x >= UI_LOCK_WIDTH || y < UI_NAV_TOUCH_TOP || y >= UI_LOCK_HEIGHT) return -1;
+    /* FT6336U edge samples can land one or two pixels beyond the logical
+     * frame after the panel rotation. Keep the rightmost tab reachable while
+     * retaining the normal rejection for points well outside the screen. */
+#if KIIKO_BOARD_MURPHY_M4
+    if (x > UI_LOCK_WIDTH + 8) return -1;
+    if (x >= UI_LOCK_WIDTH) x = UI_LOCK_WIDTH - 1;
+#else
+    if (x >= UI_LOCK_WIDTH) return -1;
+#endif
+    if (y < UI_NAV_TOUCH_TOP || y >= UI_LOCK_HEIGHT) return -1;
     int tab = x * 4 / UI_LOCK_WIDTH;
     return tab < 4 ? tab : -1;
 }

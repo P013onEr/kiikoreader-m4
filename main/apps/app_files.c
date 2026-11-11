@@ -20,6 +20,11 @@
 #include "metalio_hw.h"
 #endif
 #include "ui_avatar.h"
+#if KIIKO_BOARD_MURPHY_M4
+#include "m4_project_platform.h"
+#include "m4_epdiy_compat/read_pico_sd.h"
+#include "m4_epdiy_compat/read_pico_board.h"
+#endif
 #include "book_cover_jobs.h"
 #include <dirent.h>
 #include <errno.h>
@@ -40,7 +45,10 @@
 #include "display.h"
 #include "file_tree.h"
 #include "file_search.h"
+#include "storage_scan_filter.h"
+#if !KIIKO_BOARD_MURPHY_M4
 #include "read_pico_sd.h"
+#endif
 #include "read_pico_search.h"
 #include "settings.h"
 #include "ttf_font.h"
@@ -57,6 +65,10 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
+
+#if KIIKO_BOARD_MURPHY_M4
+static const char *ui_tr(const char *s) { return s ? s : ""; }
+#endif
 
 #define FILE_MAX 512
 #define FILE_ROWS 9
@@ -108,18 +120,24 @@ static file_search_t *s_file_search;
 static char s_search_root[288];
 static unsigned s_search_matches,s_search_errors;
 static int64_t s_search_painted_ms;
-static EpdRect file_search_rect(void){return (EpdRect){36,160,612,64};}
-static EpdRect file_layout_rect(void){return (EpdRect){584,79,64,66};}
+static EpdRect file_search_rect(void){return (EpdRect){UI_MARGIN,UI_LOCK_HEIGHT==800?112:160,UI_LOCK_WIDTH-2*UI_MARGIN,UI_LOCK_HEIGHT==800?52:64};}
+static EpdRect file_layout_rect(void){return (EpdRect){UI_LOCK_WIDTH-UI_MARGIN-56,UI_LOCK_HEIGHT==800?64:79,56,56};}
+static EpdRect file_input_action_rect(void){return UI_LOCK_WIDTH==480?(EpdRect){386,56,70,48}:(EpdRect){530,79,118,66};}
 // 仅映射可见索引，不压缩原数组；筛选不会改变选中项的文件身份。
 // Map visible indices without compacting the source array, preserving selected file identities.
 static bool file_matches(int i){return s_view==FILE_VIEW_MOVE||!s_file_query[0]||read_pico_search_match(file_item_name(&s_files[i]),s_file_query);}
 static int file_visible_count(void){int n=0;for(int i=0;i<s_count;++i)if(file_matches(i))++n;return n;}
 static int file_visible_index(int n){for(int i=0;i<s_count;++i)if(file_matches(i)&&!n--)return i;return -1;}
 static EpdRect file_entry_rect(int row){
-    if(s_file_grid&&s_view!=FILE_VIEW_MOVE)return (EpdRect){36+(row%3)*210,UI_FILES_LIST_TOP+(row/3)*218,192,202};
-    return (EpdRect){36,UI_FILES_LIST_TOP+row*UI_FILES_ROW_HEIGHT,612,UI_FILES_ROW_HEIGHT};
+    if(s_file_grid&&s_view!=FILE_VIEW_MOVE) {
+        const int cols=UI_LOCK_WIDTH==480?2:3;
+        const int gap=UI_LOCK_WIDTH==480?12:18;
+        const int w=(UI_LOCK_WIDTH-2*UI_MARGIN-gap*(cols-1))/cols;
+        return (EpdRect){UI_MARGIN+(row%cols)*(w+gap),UI_FILES_LIST_TOP+(row/cols)*(UI_LOCK_WIDTH==480?122:218),w,UI_LOCK_WIDTH==480?112:202};
+    }
+    return (EpdRect){UI_MARGIN,UI_FILES_LIST_TOP+row*UI_FILES_ROW_HEIGHT,UI_LOCK_WIDTH-2*UI_MARGIN,UI_FILES_ROW_HEIGHT};
 }
-static int file_entry_hit(int x,int y){for(int row=0;row<(s_file_grid?9:UI_FILES_ROWS);++row)if(ui_rect_hit(file_entry_rect(row),x,y))return row;return -1;}
+static int file_entry_hit(int x,int y){for(int row=0;row<(s_file_grid?(UI_LOCK_WIDTH==480?6:9):UI_FILES_ROWS);++row)if(ui_rect_hit(file_entry_rect(row),x,y))return row;return -1;}
 
 static file_item_t s_selected;
 static file_item_t *s_batch;
@@ -131,13 +149,59 @@ static bool s_file_desc;
 static unsigned file_selected_count(void) {
     unsigned count=0;for(int i=0;i<s_count;++i)if(s_files[i].selected)++count;return count;
 }
-static EpdRect file_select_rect(void) { return (EpdRect){560,244,88,46}; }
-static EpdRect file_sort_button(void) { return (EpdRect){426,244,122,46}; }
+static EpdRect file_select_rect(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){UI_LOCK_WIDTH-UI_MARGIN-96,170,96,42};
+#else
+    return (EpdRect){560,244,88,46};
+#endif
+}
+static EpdRect file_sort_button(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){UI_LOCK_WIDTH-UI_MARGIN-222,170,112,42};
+#else
+    return (EpdRect){426,244,122,46};
+#endif
+}
 static EpdRect file_batch_button(int i) { return ui_files_batch_rect(i+1); }
 static EpdRect file_sort_rect(int i) {
+#if KIIKO_BOARD_MURPHY_M4
+    if(i<3)return (EpdRect){UI_MARGIN,250+i*72,ui_content_width(),62};
+    if(i<5)return (EpdRect){UI_MARGIN+(i-3)*((ui_content_width()-12)/2+12),480,(ui_content_width()-12)/2,56};
+    return (EpdRect){UI_MARGIN,556,ui_content_width(),58};
+#else
     if(i<3)return (EpdRect){60,342+i*112,564,100};
     if(i<5)return (EpdRect){60+(i-3)*290,700,274,66};
     return (EpdRect){60,836,564,72};
+#endif
+}
+static EpdRect file_sort_panel_rect(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){24,150,432,570};
+#else
+    return (EpdRect){36,230,612,710};
+#endif
+}
+static EpdRect file_batch_cancel_rect(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){44,620,180,56};
+#else
+    return (EpdRect){60,760,270,76};
+#endif
+}
+static EpdRect file_batch_confirm_rect(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){244,620,180,56};
+#else
+    return (EpdRect){354,760,270,76};
+#endif
+}
+static EpdRect file_dir_option_rect(int i) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){24,330+i*82,ui_content_width(),64};
+#else
+    return (EpdRect){60,490+i*100,564,76};
+#endif
 }
 static void file_selection_restore(void) {
     if(!s_file_selecting)return;
@@ -168,13 +232,13 @@ static void file_management_button(uint8_t *fb,EpdRect rect,const char *label,bo
 }
 static void files_navigation(uint8_t *fb) {
     if(s_file_selecting && s_view==FILE_VIEW_LIST){
-        ui_fill_rect_fast((EpdRect){0,1096,684,120},0xe0,fb);ui_hairline(fb,1096,0,684,0xa0);
+        ui_fill_rect_fast((EpdRect){0,UI_NAV_TOP,UI_LOCK_WIDTH,UI_NAV_HEIGHT},0xe0,fb);ui_hairline(fb,UI_NAV_TOP,0,UI_LOCK_WIDTH,0xa0);
         const char *labels[]={"本页全选","移动至","删除","取消"};
         const ui_icon_t icons[]={UI_ICON_COPY,UI_ICON_FOLDER_INPUT,UI_ICON_TRASH,UI_ICON_X};
         for(int i=0;i<4;++i){EpdRect r=ui_files_batch_rect(i);int cx=r.x+r.width/2;
-            if(i==0)epd_draw_circle(cx,1141,18,UI_GRAY_BLACK,fb);
-            else ui_draw_icon(fb,cx,1141,44,icons[i],UI_GRAY_BLACK);
-            ui_text_box(fb,(EpdRect){r.x,1170,r.width,30},17,labels[i],EPD_DRAW_ALIGN_CENTER,false);
+            if(i==0)epd_draw_circle(cx,UI_NAV_TOP+UI_NAV_HEIGHT/3,18,UI_GRAY_BLACK,fb);
+            else ui_draw_icon(fb,cx,UI_NAV_TOP+UI_NAV_HEIGHT/3,44,icons[i],UI_GRAY_BLACK);
+            ui_text_box(fb,(EpdRect){r.x,UI_NAV_TOP+UI_NAV_HEIGHT*2/3,r.width,UI_NAV_HEIGHT/3},17,labels[i],EPD_DRAW_ALIGN_CENTER,false);
         }
         return;
     }
@@ -192,19 +256,27 @@ static const char *folder_root(int folder) {
     return s_dir;
 }
 static int file_pager_top(void) {
-    return 1006;
+    return UI_PAGER_TOP;
 }
 static EpdRect file_action_rect(int index) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){index?244:24,566,212,56};
+#else
     int top=875;
     return (EpdRect){index?355:36,top,293,76};
+#endif
 }
 static int file_message_top(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return 590;
+#else
     return 978;
+#endif
 }
 static int file_sheet_offset(void) {
     return 0;
 }
-static int visible_rows(void) { return s_view==FILE_VIEW_MOVE?(file_action_rect(0).y-16-214)/88:s_file_grid?9:UI_FILES_ROWS; }
+static int visible_rows(void) { return s_view==FILE_VIEW_MOVE?(file_action_rect(0).y-16-214)/88:s_file_grid?(UI_LOCK_WIDTH==480?6:9):UI_FILES_ROWS; }
 static int root_rows(void) { return 6; }
 static int file_pager_pages(void) {
     int rows=s_folder<0?root_rows():visible_rows();
@@ -531,6 +603,15 @@ static app_redraw_t file_batch_tick(void) {
     return APP_REDRAW_PAGE;
 }
 static void render_file_batch_confirmation(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    EpdRect panel={24,170,432,560};ui_fill_round_rect(fb,panel,18,UI_GRAY_WHITE);file_card_border(fb,panel,18);
+    char title[64];snprintf(title,sizeof(title),"删除所选 %u 项？",file_selected_count());
+    ui_text_box(fb,(EpdRect){44,196,392,38},22,title,EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_box(fb,(EpdRect){44,244,392,30},15,"文件将从存储卡删除，无法撤销",EPD_DRAW_ALIGN_LEFT,false);
+    unsigned row=0;for(int i=0;i<s_count&&row<3;++i)if(s_files[i].selected){char name[128];copy_utf8(name,sizeof(name),file_item_name(&s_files[i]));fit_name(name,17,360);ui_text_box(fb,(EpdRect){44,292+(int)row++*38,392,28},17,name,EPD_DRAW_ALIGN_LEFT,false);}
+    ui_draw_button(fb,(EpdRect){44,620,180,56},"取消",false);ui_draw_button(fb,(EpdRect){244,620,180,56},"确认删除",true);
+    return;
+#else
     EpdRect panel={36,300,612,580};ui_fill_round_rect(fb,panel,26,UI_GRAY_WHITE);file_card_border(fb,panel,26);
     char title[64];snprintf(title,sizeof(title),"删除所选 %u 项？",file_selected_count());
     ui_text_vc(fb,64,352,31,title,EPD_DRAW_ALIGN_LEFT,false);
@@ -541,8 +622,16 @@ static void render_file_batch_confirmation(uint8_t *fb) {
     }
     ui_draw_button(fb,(EpdRect){60,760,270,76},"取消",false);
     ui_draw_button(fb,(EpdRect){354,760,270,76},"确认删除",true);
+#endif
 }
 static void render_file_sort(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    EpdRect panel={24,150,432,570};ui_fill_round_rect(fb,panel,18,UI_GRAY_WHITE);file_card_border(fb,panel,18);
+    ui_text_box(fb,(EpdRect){44,174,392,36},22,"排列文件",EPD_DRAW_ALIGN_LEFT,false);
+    const char *labels[]={"名称","文件时间","文件大小"};for(int i=0;i<3;++i){EpdRect r=file_sort_rect(i);ui_text_box(fb,(EpdRect){r.x+12,r.y+16,r.width-24,28},18,labels[i],EPD_DRAW_ALIGN_LEFT,false);file_rule(fb,r.x,r.y+r.height-1,r.width);}
+    ui_draw_button(fb,file_sort_rect(3),"↑ 升序",!s_file_desc);ui_draw_button(fb,file_sort_rect(4),"↓ 降序",s_file_desc);ui_draw_button(fb,file_sort_rect(5),"完成",true);
+    return;
+#else
     EpdRect panel={36,230,612,710};ui_fill_round_rect(fb,panel,26,UI_GRAY_WHITE);file_card_border(fb,panel,26);
     ui_text_vc(fb,64,286,31,"排列文件",EPD_DRAW_ALIGN_LEFT,false);
     const char *labels[]={"名称","文件时间","文件大小"};
@@ -552,13 +641,14 @@ static void render_file_sort(uint8_t *fb) {
     ui_draw_button(fb,file_sort_rect(3),"↑ 升序",!s_file_desc);ui_draw_button(fb,file_sort_rect(4),"↓ 降序",s_file_desc);
     ui_text_vc(fb,342,802,19,"文件夹始终优先",EPD_DRAW_ALIGN_CENTER,false);
     ui_draw_button(fb,file_sort_rect(5),"完成",true);
+#endif
 }
 void app_files_request_folder(int folder) {
     if (folder >= 0 && folder < 3) s_requested_folder = folder;
 }
 
 static bool supported(int folder, const char *name) {
-    if (!name[0] || name[0] == '.' || !strncmp(name, "._", 2)) return false;
+    if (storage_name_is_os_metadata(name) || storage_file_is_temporary(name)) return false;
     const char *ext = strrchr(name, '.');
     if (!ext) return false;
     if (folder == 0) return !strcasecmp(ext, ".epub") || !strcasecmp(ext, ".txt");
@@ -590,7 +680,7 @@ static void scan_folder(int folder) {
     if (!dir) { snprintf(s_message, sizeof(s_message), "目录不存在：%.60s", root); return; }
     struct dirent *entry;
     while (s_count < FILE_MAX && (entry = readdir(dir))) {
-        if (entry->d_name[0] == '.' || !strncmp(entry->d_name, "._", 2)) continue;
+        if (storage_name_is_os_metadata(entry->d_name)) continue;
         file_item_t *item = &s_files[s_count];
         item->selected=false;item->modified=0;
         int path_len = snprintf(item->path, sizeof(item->path), "%s/%s", root, entry->d_name);
@@ -607,6 +697,7 @@ static void scan_folder(int folder) {
             if (probe) { is_dir = true; item->size = 0; closedir(probe); }
         }
         if (!is_dir && !is_file) continue;
+        if (is_dir ? storage_name_is_os_directory(entry->d_name) : storage_file_is_temporary(entry->d_name)) continue;
         if (s_view == FILE_VIEW_MOVE && !is_dir) continue;
         // 书籍分类保留子文件夹，复用目录浏览进入任意层级。/ Keep book subfolders and reuse directory navigation at any depth.
         if (folder != 3 && !(folder == 0 && is_dir) && (!is_file || !supported(folder, entry->d_name))) continue;
@@ -765,6 +856,25 @@ static void editor_start(void) {
 
 
 static void render_actions(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    EpdRect sheet={12,146,456,590};ui_fill_round_rect(fb,sheet,18,UI_GRAY_WHITE);file_card_border(fb,sheet,18);
+    ui_fill_round_rect(fb,(EpdRect){414,158,40,40},18,0xe0);ui_text_vc(fb,434,178,19,"×",EPD_DRAW_ALIGN_CENTER,false);
+    char name[128];copy_utf8(name,sizeof(name),file_item_name(&s_selected));fit_name(name,20,302);
+    file_icon(fb,24,184,&s_selected);ui_text_box(fb,(EpdRect){72,164,324,42},20,name,EPD_DRAW_ALIGN_LEFT,false);
+    char detail[48];file_detail(detail,sizeof(detail),&s_selected);ui_text_box(fb,(EpdRect){72,204,324,28},15,detail,EPD_DRAW_ALIGN_LEFT,false);
+    char path[128];copy_utf8(path,sizeof(path),s_selected.path);fit_name(path,14,404);ui_text_box(fb,(EpdRect){24,244,420,28},14,path,EPD_DRAW_ALIGN_LEFT,false);
+    file_rule(fb,24,278,432);
+    if(s_message[0])ui_text_box(fb,(EpdRect){24,286,432,32},15,s_message,EPD_DRAW_ALIGN_LEFT,false);
+    if(s_delete_confirm){
+        ui_text_box(fb,(EpdRect){24,350,432,90},20,s_selected.is_dir?"将删除文件夹内所有内容，无法恢复":"删除后无法恢复，是否继续？",EPD_DRAW_ALIGN_CENTER,false);
+        ui_draw_button(fb,(EpdRect){24,488,204,58},"取消",false);ui_draw_button(fb,(EpdRect){252,488,204,58},"确认删除",true);
+    }else{
+        const char *labels[]={"重命名","复制","移动","删除"};
+        for(int i=0;i<4;++i){EpdRect r={24+(i%2)*222,336+(i/2)*80,210,62};ui_draw_button(fb,r,labels[i],false);}
+        ui_draw_button(fb,(EpdRect){24,544,432,58},"取消",false);
+    }
+    return;
+#else
     const int offset=file_sheet_offset();
     // S03：保留当前目录作背景，只叠加文件操作底部面板。/ S03: keep the directory visible and overlay a file-action sheet.
     EpdRect sheet = {20, 430+offset, 644, 626};
@@ -800,9 +910,20 @@ static void render_actions(uint8_t *fb) {
         ui_fill_round_rect(fb, (EpdRect){40, 930+offset, 604, 76}, 26, 0xe0);
         ui_text_vc(fb, 342, 968+offset, 23, "取消", EPD_DRAW_ALIGN_CENTER, false);
     }
+#endif
 }
 
 static void render_rename(uint8_t *fb) {
+#if KIIKO_BOARD_MURPHY_M4
+    ui_nav_back(fb, UI_MARGIN, 52);
+    ui_text_box(fb,(EpdRect){100,56,280,48},25,"重命名",EPD_DRAW_ALIGN_CENTER,false);
+    ui_text_box(fb,(EpdRect){UI_LOCK_WIDTH-UI_MARGIN-70,56,70,48},18,"完成",EPD_DRAW_ALIGN_CENTER,false);
+    EpdRect field={24,200,432,66};
+    ui_text_input_draw(fb,&s_editor_input,field,20,false,s_editor_ext);
+    if(s_editor_notice[0])ui_text_fixed_vc(fb,24,282,16,s_editor_notice,EPD_DRAW_ALIGN_LEFT,false);
+    ui_keyboard_draw(fb,UI_SYSTEM_KEYBOARD_TOP);
+    return;
+#else
     ui_nav_back(fb, 36, 79);
     ui_text_vc(fb, 342, 107, 34, "重命名", EPD_DRAW_ALIGN_CENTER, false);
     ui_text_vc(fb, 646, 107, 25, "完成", EPD_DRAW_ALIGN_RIGHT, false);
@@ -812,6 +933,7 @@ static void render_rename(uint8_t *fb) {
     ui_text_input_draw(fb, &s_editor_input, field, 29, false, s_editor_ext);
     if (s_editor_notice[0]) ui_text_fixed_vc(fb, 36, 510, 22, s_editor_notice, EPD_DRAW_ALIGN_LEFT, false);
     ui_keyboard_draw(fb, UI_SYSTEM_KEYBOARD_TOP);
+#endif
 }
 
 static bool storage_space_valid(const read_pico_sd_info_t *info) {
@@ -853,6 +975,15 @@ static void render_content(app_ctx_t *ctx, uint8_t *fb) {
     if(main_page_visible(ctx))ui_root_background(fb);
     ui_nav_status(fb);
     if (s_view == FILE_VIEW_RENAME || s_view == FILE_VIEW_SEARCH) {
+#if KIIKO_BOARD_MURPHY_M4
+        EpdRect field={24,200,432,66};
+        ui_nav_back(fb,UI_MARGIN,52);
+        ui_text_box(fb,(EpdRect){100,56,280,48},25,s_view==FILE_VIEW_SEARCH?"搜索文件":"重命名",EPD_DRAW_ALIGN_CENTER,false);
+        ui_text_box(fb,(EpdRect){UI_LOCK_WIDTH-UI_MARGIN-70,56,70,48},18,s_view==FILE_VIEW_SEARCH?"应用":"完成",EPD_DRAW_ALIGN_CENTER,false);
+        ui_text_input_draw(fb,&s_editor_input,field,20,false,s_view==FILE_VIEW_RENAME?s_editor_ext:NULL);
+        if(s_view==FILE_VIEW_SEARCH){ui_text_box(fb,(EpdRect){24,282,432,54},16,"可输入中文、完整拼音、首字母或英文",EPD_DRAW_ALIGN_LEFT,false);ui_draw_button(fb,(EpdRect){24,350,140,52},"清空",false);}
+        ui_keyboard_draw(fb,UI_SYSTEM_KEYBOARD_TOP);
+#else
         if(s_view==FILE_VIEW_SEARCH){
             ui_nav_back(fb,36,79);ui_text_box(fb,(EpdRect){120,79,380,66},34,"搜索文件",EPD_DRAW_ALIGN_CENTER,false);
             ui_text_box(fb,(EpdRect){530,79,118,66},26,"应用",EPD_DRAW_ALIGN_CENTER,false);
@@ -860,18 +991,83 @@ static void render_content(app_ctx_t *ctx, uint8_t *fb) {
             ui_text_box(fb,(EpdRect){36,352,612,84},22,"可输入中文、完整拼音、首字母或英文",EPD_DRAW_ALIGN_LEFT,false);
             ui_draw_button(fb,(EpdRect){36,458,180,66},"清空",false);ui_keyboard_draw(fb,UI_SYSTEM_KEYBOARD_TOP);
         }else render_rename(fb);
+#endif
         files_navigation(fb);
         return;
     }
     if(s_view==FILE_VIEW_DIR_OPTIONS){
         s_view=FILE_VIEW_LIST;render(ctx,fb);s_view=FILE_VIEW_DIR_OPTIONS;
+#if KIIKO_BOARD_MURPHY_M4
+        EpdRect panel={24,290,432,350};ui_fill_round_rect(fb,panel,18,UI_GRAY_WHITE);file_card_border(fb,panel,18);
+        ui_text_box(fb,(EpdRect){44,310,392,42},22,"当前文件夹用途",EPD_DRAW_ALIGN_CENTER,false);
+        const char *options[]={"设为书籍目录","设为字体目录","取消"};
+        for(int i=0;i<3;++i)file_management_button(fb,file_dir_option_rect(i),options[i],false);
+#else
         EpdRect panel={36,370,612,440};ui_fill_round_rect(fb,panel,26,UI_GRAY_WHITE);file_card_border(fb,panel,26);
         ui_text_box(fb,(EpdRect){60,392,564,70},29,"当前文件夹用途",EPD_DRAW_ALIGN_CENTER,false);
         const char *options[]={"设为书籍目录","设为字体目录","取消"};
         for(int i=0;i<3;++i)file_management_button(fb,(EpdRect){60,490+i*100,564,76},options[i],false);
+#endif
         return;
     }
     if (s_folder >= 0) {
+#if KIIKO_BOARD_MURPHY_M4
+        ui_nav_back(fb, UI_MARGIN, 52);
+        const char *title=s_folder==3?(!strcmp(s_dir,"/sdcard")?"TF 卡根目录":strrchr(s_dir,'/')+1):names[s_folder];
+        if(!strcmp(title,"fonts"))title="Fonts";
+        ui_text_box(fb,(EpdRect){96,56,288,48},24,s_view==FILE_VIEW_MOVE?"选择目标文件夹":title,EPD_DRAW_ALIGN_CENTER,false);
+        if(s_view!=FILE_VIEW_MOVE){
+            EpdRect layout=file_layout_rect(),search=file_search_rect();
+            ui_draw_icon(fb,layout.x+layout.width/2,layout.y+layout.height/2,24,
+                         s_file_grid?UI_ICON_LIST:UI_ICON_LAYOUT_GRID,0x30);
+            ui_fill_round_rect(fb,search,14,0xf0);ui_draw_control_frame(fb,search,14,0xc0);
+            ui_draw_icon(fb,search.x+22,search.y+search.height/2,20,UI_ICON_SEARCH,0x60);
+            EpdRect search_text={search.x+42,search.y+5,search.width-88,search.height-10};
+            ui_text_box(fb,search_text,17,s_file_query[0]?s_file_query:"搜索文件",EPD_DRAW_ALIGN_LEFT,false);
+            if(s_file_query[0])ui_draw_icon(fb,search.x+search.width-18,search.y+search.height/2,20,UI_ICON_X,0x60);
+            file_management_button(fb,file_sort_button(),s_file_sort==0?"名称排序":s_file_sort==1?"时间排序":"大小排序",false);
+            file_management_button(fb,file_select_rect(),s_file_selecting?"取消":"选择",false);
+        }
+        char count[48];snprintf(count,sizeof(count),s_file_selecting?"已选 %u 项":"共 %u 项",
+            s_file_selecting?file_selected_count():(unsigned)file_visible_count());
+        ui_text_box(fb,(EpdRect){UI_MARGIN,222,ui_content_width(),22},15,count,EPD_DRAW_ALIGN_LEFT,false);
+        int top=s_view==FILE_VIEW_MOVE?214:UI_FILES_LIST_TOP;
+        ui_hairline(fb,top-6,UI_MARGIN,ui_content_width(),0x70);
+        for(int row=0;row<visible_rows();++row){
+            int index=file_visible_index(s_page*visible_rows()+row);if(index<0)break;
+            file_item_t *item=&s_files[index];
+            EpdRect r=s_view==FILE_VIEW_MOVE?(EpdRect){UI_MARGIN,214+row*88,ui_content_width(),80}:file_entry_rect(row);
+            bool grid=s_file_grid&&s_view!=FILE_VIEW_MOVE;
+            if(item->selected)ui_fill_round_rect(fb,r,8,0xee);
+            char name[128],author[128],detail[192],size[32];file_display_name(item,name,author);file_detail(size,sizeof(size),item);
+            if(grid){
+                ui_draw_icon(fb,r.x+r.width/2,r.y+32,42,file_item_icon(item),0x30);
+                fit_name(name,16,r.width-16);
+                ui_text_box(fb,(EpdRect){r.x+8,r.y+56,r.width-16,30},16,name,EPD_DRAW_ALIGN_CENTER,false);
+                fit_name(size,12,r.width-16);
+                ui_text_box(fb,(EpdRect){r.x+8,r.y+86,r.width-16,20},12,size,EPD_DRAW_ALIGN_CENTER,false);
+            }else{
+                file_icon(fb,44,r.y+r.height/2,item);
+                int text_x=72,text_w=UI_LOCK_WIDTH-UI_MARGIN-text_x-(s_file_selecting?34:14);
+                fit_name(name,17,text_w);
+                ui_text_box(fb,(EpdRect){text_x,r.y+3,text_w,24},17,name,EPD_DRAW_ALIGN_LEFT,false);
+                if(author[0]&&!s_file_query[0])snprintf(detail,sizeof(detail),"%s · %s",author,size);
+                else copy_utf8(detail,sizeof(detail),size);
+                fit_name(detail,12,text_w);
+                ui_text_box(fb,(EpdRect){text_x,r.y+27,text_w,20},12,detail,EPD_DRAW_ALIGN_LEFT,false);
+                int mx=r.x+r.width-(s_file_selecting?20:14);
+                if(s_file_selecting){epd_draw_circle(mx,r.y+r.height/2,12,0x60,fb);if(item->selected)epd_fill_circle(mx,r.y+r.height/2,4,UI_GRAY_BLACK,fb);}
+                else if(s_view!=FILE_VIEW_MOVE)ui_draw_icon(fb,mx,r.y+r.height/2,19,UI_ICON_CHEVRON_RIGHT,0x30);
+                ui_hairline(fb,r.y+r.height-1,text_x,r.x+r.width-text_x-8,0x70);
+            }
+        }
+        if(!file_visible_count())ui_text_box(fb,(EpdRect){36,420,408,72},18,s_message[0]?s_message:"此目录还没有文件",EPD_DRAW_ALIGN_CENTER,false);
+        if(s_view==FILE_VIEW_MOVE){
+            file_management_button(fb,file_action_rect(0),"取消移动",false);
+            file_management_button(fb,file_action_rect(1),"移动到此处",false);
+            if(s_message[0])ui_text_box(fb,(EpdRect){24,574,432,28},14,s_message,EPD_DRAW_ALIGN_CENTER,false);
+        }
+#else
         ui_nav_back(fb,36,79);
         const char *title=s_folder==3?(!strcmp(s_dir,"/sdcard")?"TF 卡根目录":strrchr(s_dir,'/')+1):names[s_folder];
         if(!strcmp(title,"fonts"))title="Fonts";
@@ -907,7 +1103,38 @@ static void render_content(app_ctx_t *ctx, uint8_t *fb) {
             file_management_button(fb,file_action_rect(0),"取消移动",false);file_management_button(fb,file_action_rect(1),"移动到此处",false);
             if(s_message[0])ui_text_box(fb,(EpdRect){36,960,612,32},20,s_message,EPD_DRAW_ALIGN_CENTER,false);
         }
+#endif
     } else {
+#if KIIKO_BOARD_MURPHY_M4
+        ui_text_box(fb,(EpdRect){UI_MARGIN,66,250,48},34,"文件",EPD_DRAW_ALIGN_LEFT,false);
+        EpdRect card=storage_card_rect();ui_fill_round_rect(fb,card,16,UI_GRAY_WHITE);file_card_border(fb,card,16);
+        ui_draw_icon(fb,card.x+24,card.y+28,24,UI_ICON_HARD_DRIVE,0x20);
+        ui_text_box(fb,(EpdRect){card.x+44,card.y+8,126,34},20,"存储卡",EPD_DRAW_ALIGN_LEFT,false);
+        ui_text_box(fb,(EpdRect){card.x+176,card.y+8,card.width-188,34},15,"查看文件 ›",EPD_DRAW_ALIGN_RIGHT,false);
+        char total[32],available[32],quota[80],usage[80];
+        if(s_sd.mounted){storage_usage(&s_sd,total,sizeof(total),usage,sizeof(usage));
+            if(storage_space_valid(&s_sd))storage_amount(available,sizeof(available),s_sd.free_bytes);else snprintf(available,sizeof(available),"统计中");
+            snprintf(quota,sizeof(quota),"%s 可用",available);
+        }else{snprintf(total,sizeof(total),"—");snprintf(quota,sizeof(quota),"%s",sd_needs_format()?"需要格式化":"未挂载");
+            snprintf(usage,sizeof(usage),"%s",s_sd_notice[0]?s_sd_notice:s_sd_format_confirm?"将清空卡内全部数据，再点确认":"请检查 TF 卡");}
+        ui_text_box(fb,(EpdRect){card.x+16,card.y+46,card.width-32,34},25,quota,EPD_DRAW_ALIGN_LEFT,false);
+        char capacity[48];snprintf(capacity,sizeof(capacity),"总容量 %s",total);
+        ui_text_box(fb,(EpdRect){card.x+16,card.y+84,card.width-32,24},15,capacity,EPD_DRAW_ALIGN_LEFT,false);
+        EpdRect meter={card.x+16,card.y+114,card.width-32,4};ui_fill_round_rect(fb,meter,2,0xd8);
+        if(storage_space_valid(&s_sd)){meter.width=(int)((s_sd.filesystem_bytes-s_sd.free_bytes)*(uint64_t)meter.width/s_sd.filesystem_bytes);if(meter.width)ui_fill_round_rect(fb,meter,2,0x30);}
+        const int folders[]={0,2,1};const char *labels[]={"书籍","字体","壁纸"};const ui_icon_t icons[]={UI_ICON_BOOK_OPEN,UI_ICON_TYPE,UI_ICON_FILE_IMAGE};
+        for(int i=0;i<3;++i){EpdRect r=ui_files_category_rect(i);ui_fill_round_rect(fb,r,14,UI_GRAY_WHITE);file_card_border(fb,r,14);
+            ui_draw_icon(fb,r.x+r.width/2,r.y+34,30,icons[i],0x20);
+            ui_text_box(fb,(EpdRect){r.x+4,r.y+62,r.width-8,26},18,labels[i],EPD_DRAW_ALIGN_CENTER,false);
+            char count[32];file_count_label(folders[i],count,sizeof(count));ui_text_box(fb,(EpdRect){r.x+4,r.y+88,r.width-8,22},14,count,EPD_DRAW_ALIGN_CENTER,false);}
+        ui_text_box(fb,(EpdRect){UI_MARGIN,430,150,30},20,"传输",EPD_DRAW_ALIGN_LEFT,false);
+        const char *methods[]={"Wi-Fi 传输","热点传输","U 盘模式"};const char *details[]={"同一网络","无需路由器","连接电脑"};
+        const ui_icon_t method_icons[]={UI_ICON_WIFI,UI_ICON_RADIO_TOWER,UI_ICON_USB};
+        for(int i=0;i<3;++i){EpdRect r=home_transfer_rect(i);ui_fill_round_rect(fb,r,12,UI_GRAY_WHITE);file_card_border(fb,r,12);
+            ui_draw_icon(fb,r.x+24,r.y+r.height/2,25,method_icons[i],0x20);
+            ui_text_box(fb,(EpdRect){r.x+48,r.y+4,r.width-64,27},17,methods[i],EPD_DRAW_ALIGN_LEFT,false);
+            ui_text_box(fb,(EpdRect){r.x+48,r.y+31,r.width-64,24},14,details[i],EPD_DRAW_ALIGN_LEFT,false);}
+#else
         ui_text_box(fb,(EpdRect){36,80,612,76},52,"文件",EPD_DRAW_ALIGN_LEFT,false);
         EpdRect card=storage_card_rect();ui_fill_round_rect(fb,card,24,UI_GRAY_WHITE);file_card_border(fb,card,24);
         ui_draw_icon(fb,74,213,28,UI_ICON_HARD_DRIVE,0x30);
@@ -935,8 +1162,22 @@ static void render_content(app_ctx_t *ctx, uint8_t *fb) {
         const char *methods[]={"Wi-Fi 传输","热点传输","U 盘模式"};const char *details[]={"同一网络，手机或电脑传入","连接阅读器热点，无需路由器","用 USB 数据线连接电脑"};const ui_icon_t method_icons[]={UI_ICON_WIFI,UI_ICON_RADIO_TOWER,UI_ICON_USB};
         for(int i=0;i<3;++i){EpdRect r=home_transfer_rect(i);ui_fill_round_rect(fb,(EpdRect){60,r.y+24,54,54},15,0xf0);ui_draw_icon(fb,87,r.y+51,33,method_icons[i],0x20);
             ui_text_box(fb,(EpdRect){134,r.y+14,450,43},27,methods[i],EPD_DRAW_ALIGN_LEFT,false);ui_text_box(fb,(EpdRect){134,r.y+58,450,28},18,details[i],EPD_DRAW_ALIGN_LEFT,false);ui_draw_icon(fb,612,r.y+51,24,UI_ICON_CHEVRON_RIGHT,0x30);if(i)ui_draw_separator(fb,r.y,60,564,0x90);}
+#endif
     }
     if(s_view==FILE_VIEW_LIST&&s_folder>=0){
+#if KIIKO_BOARD_MURPHY_M4
+        ui_draw_icon(fb,file_layout_rect().x+file_layout_rect().width/2,
+                     file_layout_rect().y+file_layout_rect().height/2,24,
+                     s_file_grid?UI_ICON_LIST:UI_ICON_LAYOUT_GRID,0x30);
+        EpdRect search=file_search_rect();ui_fill_round_rect(fb,search,14,0xf0);ui_draw_control_frame(fb,search,14,0xc0);
+        ui_draw_icon(fb,search.x+22,search.y+search.height/2,20,UI_ICON_SEARCH,0x60);
+        ui_text_box(fb,(EpdRect){search.x+42,search.y+5,search.width-88,search.height-10},17,
+                    s_file_query[0]?s_file_query:"搜索文件",EPD_DRAW_ALIGN_LEFT,false);
+        if(s_file_query[0])ui_draw_icon(fb,search.x+search.width-18,search.y+search.height/2,20,UI_ICON_X,0x60);
+        char label[48];snprintf(label,sizeof(label),"%s %s",s_file_sort==0?"名称":s_file_sort==1?"时间":"大小",s_file_desc?"↓":"↑");
+        file_management_button(fb,file_sort_button(),label,false);file_management_button(fb,file_select_rect(),s_file_selecting?"取消":"选择",false);
+        if(s_message[0])ui_text_box(fb,(EpdRect){24,600,432,24},14,s_message,EPD_DRAW_ALIGN_CENTER,false);
+#else
         ui_draw_icon(fb,616,112,36,s_file_grid?UI_ICON_LIST:UI_ICON_LAYOUT_GRID,0x30);
         EpdRect search=file_search_rect();ui_fill_round_rect(fb,search,18,0xf0);ui_draw_control_frame(fb,search,18,0xc0);
         ui_draw_icon(fb,66,192,28,UI_ICON_SEARCH,0x60);
@@ -945,6 +1186,7 @@ static void render_content(app_ctx_t *ctx, uint8_t *fb) {
         char label[48];snprintf(label,sizeof(label),"%s %s",s_file_sort==0?"名称":s_file_sort==1?"时间":"大小",s_file_desc?"↓":"↑");
         file_management_button(fb,file_sort_button(),label,false);file_management_button(fb,file_select_rect(),s_file_selecting?"取消":"选择",false);
         if(s_message[0])ui_text_box(fb,(EpdRect){36,984,612,22},17,s_message,EPD_DRAW_ALIGN_CENTER,false);
+#endif
     }
     if(s_folder>=0)draw_file_pager(fb);
     files_navigation(fb);
@@ -1175,7 +1417,9 @@ static app_redraw_t action_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
 static EpdRect s_input_area;
 static bool s_input_layout, s_input_settle;
 static app_redraw_t rename_paint(app_ctx_t *ctx, bool field) {
-    ui_keyboard_update_t update = ui_keyboard_update(ctx->fb, UI_SYSTEM_KEYBOARD_TOP, (EpdRect){36, 242, 612, 82}, 29, false, s_editor_ext, field);
+    EpdRect input_rect = KIIKO_BOARD_MURPHY_M4 ? (EpdRect){24,200,432,66} : (EpdRect){36,242,612,82};
+    int input_px = KIIKO_BOARD_MURPHY_M4 ? 20 : 29;
+    ui_keyboard_update_t update = ui_keyboard_update(ctx->fb, UI_SYSTEM_KEYBOARD_TOP, input_rect, input_px, false, s_editor_ext, field);
     s_input_area = update.area; s_input_layout = update.layout; s_input_settle = update.settle;
     return update.area.width ? APP_REDRAW_AREA : APP_REDRAW_NONE;
 }
@@ -1213,8 +1457,8 @@ static app_redraw_t rename_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
     if (ev->type != UI_GESTURE_TAP) return feedback ? rename_paint(ctx, false) : APP_REDRAW_NONE;
     int x = ev->x0, y = ev->y0;
     if (y < 160 && x < 160) { ui_keyboard_end(); s_view = FILE_VIEW_ACTIONS; return APP_REDRAW_PAGE; }
-    if (y < 160 && x > 510) return save_rename();
-    if (ui_text_input_tap(&s_editor_input, (EpdRect){36, 242, 612, 82}, 29,
+    if (ui_rect_hit(file_input_action_rect(),x,y)) return save_rename();
+    if (ui_text_input_tap(&s_editor_input, KIIKO_BOARD_MURPHY_M4 ? (EpdRect){24,200,432,66} : (EpdRect){36,242,612,82}, KIIKO_BOARD_MURPHY_M4 ? 20 : 29,
                           false, s_editor_ext, x, y)) return rename_paint(ctx, true);
     ui_keyboard_result_t result = ui_keyboard_tap(x, y, UI_SYSTEM_KEYBOARD_TOP, esp_timer_get_time() / 1000);
     if (result == UI_KEYBOARD_DONE) return save_rename();
@@ -1225,14 +1469,15 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if(s_batch_running)return APP_REDRAW_NONE;
     if(s_view==FILE_VIEW_SEARCH){
         if(ev->type==UI_GESTURE_TAP&&ev->y0<160){
-            if(ev->x0>510)return file_search_apply();
+            if(ui_rect_hit(file_input_action_rect(),ev->x0,ev->y0))return file_search_apply();
             ui_keyboard_end();s_view=FILE_VIEW_LIST;return APP_REDRAW_FULL;
         }
-        if(ev->type==UI_GESTURE_TAP&&ui_rect_hit((EpdRect){36,458,180,66},ev->x0,ev->y0)){
+        if(ev->type==UI_GESTURE_TAP&&ui_rect_hit(KIIKO_BOARD_MURPHY_M4?(EpdRect){24,350,140,52}:(EpdRect){36,458,180,66},ev->x0,ev->y0)){
             s_query_draft[0]=0;ui_text_edit_init(&s_editor_input,s_query_draft,sizeof(s_query_draft));return APP_REDRAW_FULL;
         }
         if(ev->type==UI_GESTURE_TAP&&ev->y0>=160&&ev->y0<UI_SYSTEM_KEYBOARD_TOP){
-            if(ui_text_input_tap(&s_editor_input,(EpdRect){36,242,612,82},29,false,NULL,ev->x0,ev->y0))return rename_paint(ctx,true);
+            EpdRect input_rect=KIIKO_BOARD_MURPHY_M4?(EpdRect){24,200,432,66}:(EpdRect){36,242,612,82};
+            if(ui_text_input_tap(&s_editor_input,input_rect,KIIKO_BOARD_MURPHY_M4?20:29,false,NULL,ev->x0,ev->y0))return rename_paint(ctx,true);
             return APP_REDRAW_NONE;
         }
         if(ev->type==UI_GESTURE_TAP){
@@ -1244,7 +1489,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if(s_view==FILE_VIEW_DIR_OPTIONS){
         if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
-        for(int i=0;i<3;++i)if(ui_rect_hit((EpdRect){60,490+i*100,564,76},ev->x0,ev->y0)){
+        for(int i=0;i<3;++i)if(ui_rect_hit(file_dir_option_rect(i),ev->x0,ev->y0)){
             if(i<2){
                 if(!strcmp(s_dir,"/sdcard"))snprintf(s_message,sizeof(s_message),"请先进入 TF 卡内的文件夹");
                 else if(i==0){if(app_settings_set_books_dir(s_dir)){book_store_notify_changed();snprintf(s_message,sizeof(s_message),"已设为书籍目录");}else snprintf(s_message,sizeof(s_message),"保存失败，请重试");}
@@ -1257,7 +1502,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if(s_view==FILE_VIEW_SORT){
         if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
-        if(!ui_rect_hit((EpdRect){36,230,612,710},ev->x0,ev->y0)||ui_rect_hit(file_sort_rect(5),ev->x0,ev->y0))s_view=FILE_VIEW_LIST;
+        if(!ui_rect_hit(file_sort_panel_rect(),ev->x0,ev->y0)||ui_rect_hit(file_sort_rect(5),ev->x0,ev->y0))s_view=FILE_VIEW_LIST;
         else for(int i=0;i<5;++i)if(ui_rect_hit(file_sort_rect(i),ev->x0,ev->y0)){
             if(i<3)s_file_sort=i;else s_file_desc=i==4;
             qsort(s_files,s_count,sizeof(*s_files),compare_files);s_page=0;break;
@@ -1266,7 +1511,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if(s_view==FILE_VIEW_BATCH_DELETE){
         if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
-        if(ui_rect_hit((EpdRect){354,760,270,76},ev->x0,ev->y0)){
+        if(ui_rect_hit(file_batch_confirm_rect(),ev->x0,ev->y0)){
             if(file_batch_prepare())(void)file_batch_begin(false);
             if(!s_batch_running)s_view=FILE_VIEW_LIST;
         }else s_view=FILE_VIEW_LIST;
@@ -1286,7 +1531,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             return APP_REDRAW_FULL;
         }
         if(ui_rect_hit(file_sort_button(),ev->x0,ev->y0)){s_view=FILE_VIEW_SORT;return APP_REDRAW_PAGE;}
-        if(s_file_selecting&&ev->y0>=1096){
+        if(s_file_selecting&&ev->y0>=UI_NAV_TOP){
             if(ui_rect_hit(ui_files_batch_rect(3),ev->x0,ev->y0)){s_file_selecting=false;s_batch_count=0;for(int i=0;i<s_count;++i)s_files[i].selected=false;return APP_REDRAW_FULL;}
             if(ui_rect_hit(ui_files_batch_rect(0),ev->x0,ev->y0)){
                 int rows=s_folder<0?root_rows():visible_rows(),start=s_page*rows;bool all=true;
@@ -1403,7 +1648,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         s_sd_format_confirm = false;
         s_sd_notice[0] = 0;
     }
-    for (int i = 0; !long_press && i < 3; ++i) if (ui_rect_hit(home_transfer_rect(i), ev->x0, ev->y0)) {
+    for (int i = 0; !KIIKO_BOARD_MURPHY_M4 && !long_press && i < 3; ++i) if (ui_rect_hit(home_transfer_rect(i), ev->x0, ev->y0)) {
         extern const app_desc_t app_transfer;
         if (i == 0) app_transfer_request_wifi_upload();
         else if (i == 1) app_transfer_request_hotspot_start();

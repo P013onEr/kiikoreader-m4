@@ -51,6 +51,7 @@ def check_image(data, board):
 
 def export(build, output, board):
     info = metadata(board)
+    chip_family = {'esp32s3': 'ESP32-S3', 'esp32s31': 'ESP32-S31'}[info['idf_target']]
     app = build / (info['project'] + '.bin')
     identity = check_image(app.read_bytes(), board)
     entries = partition_entries((build / 'partition_table/partition-table.bin').read_bytes())
@@ -117,7 +118,7 @@ def export(build, output, board):
                 'experimental_early_power_key': bool(early_key),
                 'requires_bootloader_update': bool(early_key),
                 'project': identity['project'], 'new_install_prompt_erase': False,
-                'builds': [{'chipFamily': 'ESP32-S3' if board == 'pico' else 'ESP32-S31', 'parts': []}]}
+                'builds': [{'chipFamily': chip_family, 'parts': []}]}
     checksums, args = [], [shlex.join(plan['write_flash_args'])]
     flash_pairs = []
     for name, source, offset in parts:
@@ -145,16 +146,28 @@ def export(build, output, board):
     command.extend(plan['write_flash_args'])
     command.extend(flash_pairs)
     (output / 'flash-command.txt').write_text(shlex.join(command) + '\n', encoding='utf-8')
+    # Existing-device updates use the confirmed inactive app1 slot. Keep this
+    # separate from the complete-install command so a routine M4 iteration
+    # cannot overwrite bootloader, partitions, NVS, or storage.
+    if board == 'murphy_m4':
+        app1_command = ['python', '-m', 'esptool', '--chip', loader['chip'], '--port', 'PORT',
+                        '--before', loader['before'], '--after', loader['after'], 'write-flash']
+        app1_command.extend(plan['write_flash_args'])
+        app1_command.extend([f"{entries['ota_1'][2]:#x}", 'firmware.bin'])
+        (output / 'app1-flash-command.txt').write_text(shlex.join(app1_command) + '\n', encoding='utf-8')
     (output / 'SHA256SUMS.txt').write_text(''.join(checksums), encoding='utf-8')
     (output / '使用说明.txt').write_text(
         f"本地测试固件 / {info['name']} / {info['idf_target']} / {identity['version']}\n"
         "只用于对应设备，不可跨板型刷写。应用Bin仅用于已有正确分区的升级，不可写到地址0。\n"
         "完整初装命令见flash-command.txt（esptool v5 可用），旧工具可用flash_args。\n"
-        "保留数据时不要全片擦除。当前工具只编译，不会连接或刷写设备。\n" +
+        + ("已有 M4 设备的日常应用更新使用 app1-flash-command.txt，只写入已确认的 0x6e0000 槽。\n" if board == 'murphy_m4' else "")
+        + "保留数据时不要全片擦除。当前工具只编译，不会连接或刷写设备。\n" +
         ("本实验需要配套应用及引导程序；仅写应用无法修复短按开机，不能按普通TF/OTA更新处理。\n" if early_key else ""),
         encoding='utf-8')
     result = {'board': board, 'target': info['idf_target'], **identity,
               'partitions': entries, 'bootloader_offset': expected_offsets['bootloader'],
+              'fixed_app_update': ({'partition': 'ota_1', 'offset': entries['ota_1'][2],
+                                    'size': entries['ota_1'][3]} if board == 'murphy_m4' else None),
               'esptool_stub': loader['stub'], 'free_app_bytes': entries['ota_0'][3] - identity['size'],
               'experimental_pie_pixels': bool(experimental_pie),
               'experimental_text_ripple': bool(experimental_ripple),
@@ -206,6 +219,9 @@ def build_one(board, args):
                '-DMETALIO_NETWORK_PROBE=' + ('ON' if board == 'metalio47' and args.s31_network_probe else 'OFF'),
                '-DMETALIO_LOCAL_TRANSFER_START=' + ('ON' if board == 'metalio47' and getattr(args, 's31_transfer_startup_test', False) else 'OFF'),
                'reconfigure', 'build']
+    if getattr(args, 'managed_' + board):
+        command.insert(command.index('reconfigure'),
+                       '-DEXTRA_COMPONENT_DIRS=' + str(source / 'managed_components'))
     early_key=board=='metalio47' and getattr(args,'s31_early_power_key',False)
     if board=='metalio47':
         for index,value in enumerate(command):
@@ -271,7 +287,7 @@ def build_one(board, args):
     if args.tools:
         tools = args.tools.resolve()
         env['IDF_TOOLS_PATH'] = str(tools)
-        architecture = 'xtensa-esp-elf' if board == 'pico' else 'riscv32-esp-elf'
+        architecture = 'xtensa-esp-elf' if info['idf_target'] == 'esp32s3' else 'riscv32-esp-elf'
         extra.extend(str(path) for path in (tools / 'tools' / architecture).glob('**/bin') if path.is_dir())
         extra.extend(str(path) for path in (tools / 'tools/esp32ulp-elf').glob('**/bin') if path.is_dir())
     env['PATH'] = os.pathsep.join(extra + [env.get('PATH', '')])
@@ -310,29 +326,29 @@ def main():
     parser.add_argument('--s31-early-power-key', action='store_true', help='Local S31 bootloader P17 capture experiment; requires a matched bootloader and application')
     args = parser.parse_args()
     args.board = canonical_board(args.board)
-    if args.s31_pie and args.board == 'pico':
+    if args.s31_pie and args.board != 'metalio47':
         parser.error('--s31-pie requires metalio47 or all')
-    if args.s31_text_ripple and args.board == 'pico':
+    if args.s31_text_ripple and args.board != 'metalio47':
         parser.error('--s31-text-ripple requires metalio47 or all')
-    if args.s31_reader_panel37 and args.board == 'pico':
+    if args.s31_reader_panel37 and args.board != 'metalio47':
         parser.error('--s31-reader-panel37 requires metalio47 or all')
-    if args.s31_shelf37 and args.board == 'pico':
+    if args.s31_shelf37 and args.board != 'metalio47':
         parser.error('--s31-shelf37 requires metalio47 or all')
-    if args.s31_fast_reader_panels and args.board=='pico':
+    if args.s31_fast_reader_panels and args.board != 'metalio47':
         parser.error('--s31-fast-reader-panels requires metalio47 or all')
-    if args.s31_du14 and args.board == 'pico':
+    if args.s31_du14 and args.board != 'metalio47':
         parser.error('--s31-du14 requires metalio47 or all')
-    if args.s31_trimmed_waveform and args.board == 'pico':
+    if args.s31_trimmed_waveform and args.board != 'metalio47':
         parser.error('--s31-trimmed-waveform requires metalio47 or all')
-    if args.pico_main_clean and args.board == 'metalio47':
+    if args.pico_main_clean and args.board != 'pico':
         parser.error('--pico-main-clean requires pico or all')
-    if args.s31_main_clean and args.board == 'pico':
+    if args.s31_main_clean and args.board != 'metalio47':
         parser.error('--s31-main-clean requires metalio47 or all')
-    if args.s31_network_probe and args.board == 'pico':
+    if args.s31_network_probe and args.board != 'metalio47':
         parser.error('--s31-network-probe requires metalio47 or all')
-    if args.s31_transfer_startup_test and args.board == 'pico':
+    if args.s31_transfer_startup_test and args.board != 'metalio47':
         parser.error('--s31-transfer-startup-test requires metalio47 or all')
-    if args.s31_early_power_key and args.board=='pico':
+    if args.s31_early_power_key and args.board != 'metalio47':
         parser.error('--s31-early-power-key requires metalio47 or all')
     boards = BOARDS if args.board == 'all' else (args.board,)
     if args.list:

@@ -26,9 +26,9 @@ static size_t allocated;static unsigned allocations;
 static void* heap_caps_calloc(size_t n,size_t bytes,unsigned caps){
  assert(caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));allocated=n*bytes;++allocations;return calloc(n,bytes);
 }
-static const char *k_font_dirs[2],*user_dir;
+static const char *k_font_dirs[4],*user_dir;
 static const char *app_settings_fonts_dir(void){return user_dir;}
-static ttf_font_item_t *s_catalog;static int s_catalog_n;
+static ttf_font_item_t *s_catalog;static bool s_catalog_scanned;static int s_catalog_n;
 '''
 for name in ('font_basename', 'is_junk_name', 'is_ttf_name', 'font_stem', 'font_item_cmp',
              'catalog_has_name', 'catalog_alloc', 'ttf_font_scan', 'ttf_font_count', 'ttf_font_item'):
@@ -45,11 +45,12 @@ static void clear(const char *dir){
  assert(!closedir(d));
 }
 int main(int argc,char **argv){
- assert(argc==3&&TTF_FONT_MAX==128&&sizeof(ttf_font_item_t)==224);assert(!strcmp(font_basename("/fonts/name.ttf"),"name.ttf"));
- k_font_dirs[0]=argv[1];k_font_dirs[1]=NULL;user_dir=argv[2];
+ assert(argc==5&&TTF_FONT_MAX==128&&sizeof(ttf_font_item_t)==224);assert(!strcmp(font_basename("/fonts/name.ttf"),"name.ttf"));
+ k_font_dirs[0]=argv[1];k_font_dirs[1]=argv[2];k_font_dirs[2]=argv[3];k_font_dirs[3]=NULL;user_dir=argv[4];
+ const char *dirs[]={k_font_dirs[0],k_font_dirs[1],k_font_dirs[2],user_dir};
  const int amounts[]={0,1,24,25,127,128,129,160};
  for(unsigned test=0;test<sizeof(amounts)/sizeof(amounts[0]);++test){
-  clear(user_dir);int n=amounts[test];
+  for(unsigned d=0;d<4;++d)clear(dirs[d]);int n=amounts[test];
   for(int i=0;i<n;++i){char name[40];snprintf(name,sizeof(name),"font-%03d%s",i,i%2?".TTF":".ttf");put(user_dir,name);}
   int expected=n>128?128:n;assert(ttf_font_scan()==expected&&ttf_font_count()==expected);
   for(int i=0;i<expected;++i){const ttf_font_item_t *p=ttf_font_item(i);assert(p&&strstr(p->path,user_dir));
@@ -57,33 +58,36 @@ int main(int argc,char **argv){
   assert(!ttf_font_item(-1)&&!ttf_font_item(expected));
   if(n==128)for(int i=0;i<n;++i){char name[40];snprintf(name,sizeof(name),"font-%03d",i);assert(!strcmp(ttf_font_item(i)->name,name));}
  }
- clear(user_dir);put(k_font_dirs[0],"Same.ttf");put(user_dir,"same.TTF");put(user_dir,"Other.ttf");
+ for(unsigned d=0;d<4;++d)clear(dirs[d]);put(k_font_dirs[0],"Same.ttf");put(k_font_dirs[1],"Plural.ttf");put(k_font_dirs[2],"Singular.ttf");put(user_dir,"same.TTF");put(user_dir,"Other.ttf");
  put(user_dir,"._Ignored.ttf");put(user_dir,".hidden.ttf");put(user_dir,"readme.txt");
  #if TEST_METALIO
- assert(ttf_font_scan()==5);
+ assert(ttf_font_scan()==7);
  assert(strcmp(ttf_font_item(3)->path,ttf_font_item(4)->path));
 #else
- assert(ttf_font_scan()==2);
- assert(!strcmp(ttf_font_item(0)->name,"Other")&&!strcmp(ttf_font_item(1)->name,"Same"));
- assert(strstr(ttf_font_item(1)->path,k_font_dirs[0]));
+ assert(ttf_font_scan()==4);
+ assert(!strcmp(ttf_font_item(0)->name,"Other")&&!strcmp(ttf_font_item(1)->name,"Plural")&&!strcmp(ttf_font_item(2)->name,"Same")&&!strcmp(ttf_font_item(3)->name,"Singular"));
+ assert(strstr(ttf_font_item(2)->path,k_font_dirs[0]));
 #endif
- clear(k_font_dirs[0]);clear(user_dir);
+ for(unsigned d=0;d<4;++d)clear(dirs[d]);
  for(int i=0;i<65;++i){char name[40];snprintf(name,sizeof(name),"asset-%03d.ttf",i);put(k_font_dirs[0],name);}
  for(int i=0;i<63;++i){char name[40];snprintf(name,sizeof(name),"user-%03d.ttf",i);put(user_dir,name);}
  assert(ttf_font_scan()==128&&!strcmp(ttf_font_item(127)->name,"user-062"));
  assert(allocations==1&&allocated==28672);
- free(s_catalog);s_catalog=NULL;clear(k_font_dirs[0]);clear(user_dir);
- puts("PASS: actual catalogue0/1/24/25/127/128/129/160 bounds,all128 reachable,sorted metadata,shared two-directory limit/casefold dedup/hidden-sidecar filtering;one28672B PSRAM allocation,no font-face loading");
+ free(s_catalog);s_catalog=NULL;for(unsigned d=0;d<4;++d)clear(dirs[d]);
+ puts("PASS: actual catalogue0/1/24/25/127/128/129/160 bounds,all128 reachable,sorted metadata,all SD font-directory aliases/casefold dedup/hidden-sidecar filtering;one28672B PSRAM allocation,no font-face loading");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='font-catalog-') as folder:
     work = Path(folder)
     (work / 'assets').mkdir()
     (work / 'fonts').mkdir()
+    (work / 'font').mkdir()
+    (work / 'configured').mkdir()
     (work / 'esp_err.h').write_text('#pragma once\ntypedef int esp_err_t;\n')
     (work / 'epdiy.h').write_text('#pragma once\ntypedef struct{int x,y,width,height;} EpdRect;\nenum EpdFontFlags{EPD_DRAW_ALIGN_LEFT,EPD_DRAW_ALIGN_CENTER,EPD_DRAW_ALIGN_RIGHT};\n')
     (work / 'test.c').write_text(unit)
-    subprocess.run(['cc', '-DTEST_METALIO=' + ('1' if 'font_filename_make' in source.read_text() else '0'), '-std=gnu11', '-Wall', '-Wextra', '-Werror',
+    metalio = 'font_filename_make' in source.read_text()
+    subprocess.run(['cc', '-DTEST_METALIO=' + ('1' if metalio else '0')] + (['-DKIIKO_BOARD_METALIO47=1'] if metalio else []) + ['-std=gnu11', '-Wall', '-Wextra', '-Werror',
                     '-fsanitize=address,undefined', '-I' + str(work), '-I' + str(root / 'main/font'),
                     str(work / 'test.c'), '-o', str(work / 'test')], check=True)
-    subprocess.run([str(work / 'test'), str(work / 'assets'), str(work / 'fonts')], check=True)
+    subprocess.run([str(work / 'test'), str(work / 'assets'), str(work / 'fonts'), str(work / 'font'), str(work / 'configured')], check=True)

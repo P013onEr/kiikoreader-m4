@@ -522,6 +522,13 @@ static bool jpeg_gray(const uint8_t *data, size_t size, unsigned out_width,
 #endif
         return jpegdec_gray(data, size, frame_width, frame_height, out_width, out_height, out);
     }
+#if KIIKO_BOARD_MURPHY_M4
+    // M4 also links FreeInk's `jd_prepare`, which shadows the ROM symbol used by
+    // esp_jpeg and gives its callback ABI the wrong implementation. Keep M4
+    // EPUB covers on the independent JPEGDEC decoder.
+    return have_frame && jpegdec_gray_fallback(data, size, frame_width, frame_height,
+                                                out_width, out_height, out);
+#else
     esp_jpeg_image_cfg_t cfg = { .indata = (uint8_t *)data, .indata_size = (uint32_t)size,
                                  .out_format = JPEG_IMAGE_FORMAT_RGB565 };
     esp_jpeg_image_output_t info = {0};
@@ -549,6 +556,7 @@ static bool jpeg_gray(const uint8_t *data, size_t size, unsigned out_width,
     // Large Exif baseline JPEGs can defeat the ROM decoder; let JPEGDEC decode a 1/2..1/8 plane.
     return have_frame && jpegdec_gray_fallback(data, size, frame_width, frame_height,
                                                out_width, out_height, out);
+#endif
 }
 
 // WebP：先整幅/限幅解成 RGB565 平面，再走与基线 JPEG 相同的裁剪缩放。
@@ -883,10 +891,12 @@ bool book_image_grayscale(const uint8_t *data, size_t size, bool png,
         return false;
     // 格式按签名分派：WebP 的 png 标记为 false，不能落进 JPEG 分支。
     // Dispatch on the signature: WebP arrives with png=false and must not fall into JPEG.
-    if (book_webp_is(data, size)) return webp_gray(data, size, out_width, out_height, out);
-    if (book_gif_is(data, size)) return gif_gray(data, size, out_width, out_height, out);
-    return png ? png_gray_input(data, size, NULL, out_width, out_height, out, NULL)
-               : jpeg_gray(data, size, out_width, out_height, out);
+    bool ok;
+    if (book_webp_is(data, size)) ok = webp_gray(data, size, out_width, out_height, out);
+    else if (book_gif_is(data, size)) ok = gif_gray(data, size, out_width, out_height, out);
+    else ok = png ? png_gray_input(data, size, NULL, out_width, out_height, out, NULL)
+                  : jpeg_gray(data, size, out_width, out_height, out);
+    return ok;
 }
 
 
@@ -1181,9 +1191,9 @@ static bool book_cover_load_list_gray_impl(const char *path, const char *title, 
         }
     }
     return good;
-#if KIIKO_BOARD_METALIO47
 }
 
+#if KIIKO_BOARD_METALIO47
 // 快刷缩略图的键包含尺寸、对比度与点阵相位。/ Fast raster keys include size, contrast and dither phase.
 static bool fast_ram_key(const char *path,const char *title,const char *author,unsigned style,
                           unsigned width,unsigned height,unsigned contrast,unsigned phase,metalio_cover_key_t *out) {
@@ -1218,9 +1228,7 @@ bool book_cover_prefetch_cached(const char *path,const char *title,const char *a
     bool ok=list?book_cover_load_list_gray(path,title,author,scratch,false,&pending,&w,&h):
                  book_cover_load_gray(path,title,author,scratch,false,&pending);
     free(scratch); return ok;
-#else
 #endif
-}
 
 /* ---- 已处理的黑白点阵落卡 / Persistent finished monochrome raster ---- */
 // 更改封面点阵算法时递增此版本；首页与书架各保留一个快刷结果，不按相位累积文件。
@@ -1482,7 +1490,9 @@ extern int jpegdec_gray_file(FILE *, int, unsigned, unsigned, unsigned, unsigned
 bool book_image_file_grayscale(const char *path, bool png, unsigned width, unsigned height, uint8_t *out) {
     if (!path || !out || !width || !height || width > 1216 || height > 1216 || (uint64_t)width * height > 684u * 1216u) return false;
     struct stat st;
-    if (stat(path, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 || (uint64_t)st.st_size > BOOK_IMAGE_FILE_MAX) return false;
+    if (stat(path, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 || (uint64_t)st.st_size > BOOK_IMAGE_FILE_MAX) {
+        return false;
+    }
     FILE *file = fopen(path, "rb");
     if (!file) return false;
     bool ok = false;

@@ -120,7 +120,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [pico, metalio47]
+        board: [pico, metalio47, murphy_m4]
     # v6.1 includes both Xtensa S3 and RISC-V S31; never share their build/config directories.
     container: espressif/idf:v6.1
     steps:
@@ -160,7 +160,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [pico, metalio47]
+        board: [pico, metalio47, murphy_m4]
     steps:
       - uses: actions/checkout@v4
       - name: Select Clang for sanitizer host regressions

@@ -18,6 +18,8 @@
 #define RECORD_MAX (TITLE_PATH_MAX + TITLE_MAX + 8)
 #if KIIKO_BOARD_METALIO47
 static const char *NS = "mt_titles";
+#elif KIIKO_BOARD_MURPHY_M4
+static const char *NS = "m4_titles";
 #else
 static const char *NS = "rp_titles";
 #endif

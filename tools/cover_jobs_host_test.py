@@ -16,6 +16,7 @@ unit=r'''
 #include <sys/stat.h>
 #include "book_cover_jobs.h"
 #include "ui_image_dither.h"
+#define KIIKO_BOARD_MURPHY_M4 1
 #define MALLOC_CAP_SPIRAM 1
 #define MALLOC_CAP_8BIT 2
 #define portMUX_INITIALIZER_UNLOCKED 0
@@ -24,12 +25,13 @@ unit=r'''
 #define pdMS_TO_TICKS(x) (x)
 #define pdPASS 1
 typedef int portMUX_TYPE;
+typedef int BaseType_t;
 static int64_t mono;
 static unsigned jpeg_cancels;
 static __attribute__((unused)) void metalio_jpeg_cancel(void){++jpeg_cancels;}
 static bool media_ready_for_jobs=true;
 static bool read_pico_sd_io_ready(void){return media_ready_for_jobs;}
-static int jobs,decodes,fonts,writes,reads,mode,fail_alloc,task_ok=1,worker_context;
+static int jobs,decodes,fonts,writes,reads,mode,fail_alloc,task_ok=1,worker_context,last_core=-1,pinned_jobs;
 static unsigned replaced;
 static size_t live,largest;
 static struct{void *p;size_t n;} memory[64];
@@ -41,6 +43,7 @@ static void release(void *p){if(!p)return;for(unsigned i=0;i<64;++i)if(memory[i]
 static jmp_buf done;
 static void (*task_fn)(void *);
 static int xTaskCreate(void(*fn)(void *),const char *name,int stack,void *arg,int priority,void *handle){(void)name;(void)arg;(void)handle;assert(stack==12288&&priority==1);task_fn=fn;if(task_ok)++jobs;return task_ok;}
+static BaseType_t xTaskCreatePinnedToCore(void(*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,void *handle,int core){last_core=core;++pinned_jobs;return xTaskCreate(fn,name,(int)stack,arg,(int)priority,handle);}
 static void vTaskDelete(void *arg){(void)arg;longjmp(done,1);}
 static void vTaskDelay(int ms){mono+=ms*1000;}
 static int64_t esp_timer_get_time(void){return mono;}
@@ -68,7 +71,7 @@ int main(void){
  media_ready_for_jobs=false;book_cover_job_t blocked=request("/sdcard/books/a.epub");assert(!book_cover_jobs_submit(book_cover_jobs_begin(),0,&blocked)&&!jobs&&!reads);media_ready_for_jobs=true;
 
  unsigned generation=book_cover_jobs_begin();book_cover_result_t result={0};
- book_cover_job_t q=request("A");assert(book_cover_jobs_submit(generation,0,&q));
+ book_cover_job_t q=request("A");assert(book_cover_jobs_submit(generation,0,&q));assert(last_core==0&&pinned_jobs==1);
  assert(!decodes&&!reads&&book_cover_jobs_take(generation,0,&result)==0);run();
  assert(book_cover_jobs_take(generation,0,&result)==1&&result.pixels[0]=='A'&&!result.fast);free(result.pixels);
  assert(book_cover_jobs_take(generation,0,&result)==-1);

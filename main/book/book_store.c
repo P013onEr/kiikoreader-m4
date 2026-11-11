@@ -35,7 +35,9 @@
 #include <unistd.h>
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#if !defined(KIIKO_BOARD_MURPHY_M4)
 #include "read_pico_sd.h"
+#endif
 #include "wear_levelling.h"
 
 static const char* TAG = "book_store";
@@ -58,12 +60,23 @@ static esp_err_t ensure_dir(const char* path) {
 }
 
 static bool sd_ready(void) {
+#if defined(KIIKO_BOARD_MURPHY_M4)
+    struct stat root;
+    return stat("/sdcard", &root) == 0 && S_ISDIR(root.st_mode);
+#else
     read_pico_sd_info_t info = {0};
     read_pico_sd_get_info(&info);
     return info.present && info.mounted;
+#endif
 }
 
 static esp_err_t flash_root(book_store_root_t* out) {
+#if KIIKO_BOARD_MURPHY_M4
+    /* M4 reserves the internal slot as SPIFFS; the shared book-store backend
+     * is FAT-only. Do not retry a mismatched FAT mount on every shelf refresh. */
+    (void)out;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (!book_store_flash_ready()) {
         const esp_vfs_fat_mount_config_t config = {
             .format_if_mount_failed = true,
@@ -80,6 +93,7 @@ static esp_err_t flash_root(book_store_root_t* out) {
     esp_err_t err = ensure_dir("/flash/books");
     if (err == ESP_OK) *out = (book_store_root_t){.path = "/flash/books", .is_flash = true};
     return err;
+#endif
 }
 
 esp_err_t book_store_roots(book_store_root_t out[BOOK_STORE_ROOT_MAX], int* n) {
@@ -88,33 +102,51 @@ esp_err_t book_store_roots(book_store_root_t out[BOOK_STORE_ROOT_MAX], int* n) {
     s_roots_degraded = false;
     memset(out, 0, sizeof(*out) * BOOK_STORE_ROOT_MAX);
     if (sd_ready()) {
-        // Also show books already copied to a singular `book` directory.
-        struct stat legacy;
-        if (!strcmp(app_settings_books_dir(), "/sdcard/books") && stat("/sdcard/book", &legacy) == 0 && S_ISDIR(legacy.st_mode))
-            out[(*n)++] = (book_store_root_t){.path = "/sdcard/book", .is_flash = false};
-        if (ensure_dir(app_settings_books_dir()) == ESP_OK)
-            snprintf(out[(*n)++].path, sizeof(out[0].path), "%s", app_settings_books_dir());
-        else s_roots_degraded = true;
+        const char *configured = app_settings_books_dir();
+        const char *aliases[] = {"/sdcard/book", "/sdcard/books"};
+        for (size_t i = 0; i < sizeof(aliases) / sizeof(aliases[0]); ++i) {
+            if (!strcmp(configured, aliases[i])) continue;
+            struct stat alias;
+            if (stat(aliases[i], &alias) == 0 && S_ISDIR(alias.st_mode)) {
+                snprintf(out[*n].path, sizeof(out[0].path), "%s", aliases[i]);
+                ++*n;
+            }
+        }
+        if (ensure_dir(configured) == ESP_OK) {
+            snprintf(out[*n].path, sizeof(out[0].path), "%s", configured);
+            ++*n;
+        } else s_roots_degraded = true;
     } else {
+#if defined(KIIKO_BOARD_MURPHY_M4)
+        s_roots_degraded = true;
+#else
         read_pico_sd_info_t info = {0};
         read_pico_sd_get_info(&info);
         if (info.present) s_roots_degraded = true;
+#endif
     }
+#if defined(KIIKO_BOARD_MURPHY_M4)
+    /* M4 has no FAT-backed internal book root; that is an absent capability, not a scan failure. */
+    return *n > 0 ? ESP_OK : ESP_ERR_NOT_FOUND;
+#else
     esp_err_t err = flash_root(&out[*n]);
     if (err == ESP_OK) ++*n;
     else s_roots_degraded = true;
     return *n > 0 ? ESP_OK : err;
+#endif
 }
 
 esp_err_t book_store_upload_root(book_store_root_t* out) {
     if (out == NULL) return ESP_ERR_INVALID_ARG;
     memset(out, 0, sizeof(*out));
     if (!sd_ready()) {
+#if !defined(KIIKO_BOARD_MURPHY_M4)
         read_pico_sd_info_t info = {0};
         read_pico_sd_get_info(&info);
         // 有卡但挂载失效时让用户显式重挂，不能悄悄改写内置目录。
         // Present but invalid media requires an explicit remount, not silent flash redirection.
         if (info.present) return ESP_ERR_INVALID_STATE;
+#endif
         return flash_root(out);
     }
     esp_err_t err = ensure_dir(app_settings_books_dir());

@@ -6,5 +6,6 @@ kiiko_board_sources(kiiko_selected_sources "${CMAKE_CURRENT_LIST_DIR}" "src/ble_
 idf_component_register(
     SRCS ${kiiko_selected_sources}
     INCLUDE_DIRS "include"
-    REQUIRES bt nvs_flash esp_timer read_pico
+    PRIV_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/../../main/m4_epdiy_compat"
+    REQUIRES bt nvs_flash esp_timer
 )

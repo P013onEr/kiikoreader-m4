@@ -27,6 +27,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#ifndef KIIKO_BOARD_MURPHY_M4
+#define KIIKO_BOARD_MURPHY_M4 0
+#endif
 static ui_text_edit_t *s_edit;
 static ui_ime_result_t *s_candidates;
 static char s_raw[UI_IME_RAW_MAX + 1], s_preferred[9], s_notice[80];
@@ -55,7 +58,23 @@ static uint32_t stamp(const char *text) {
 static const char *const groups[] = {"", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz"};
 static const char *const symbols[] = {"，","。","？","！","：","；","“","”","（","）","、","…","—","·","-","_","/","@","#","&","+","=","%","\\","*","$","<",">","[","]"};
 static const char *const ascii_symbols[] = {"!","@","#","$","%","^","&","*","(",")","-","_","+","=","/","\\",":",";","\"","'",".",",","?","<",">","[","]","{","}","|","`","~"};
+#if KIIKO_BOARD_MURPHY_M4
+static EpdRect rect(int x, int y, int w, int h, int top) {
+    const int keyboard_width = 432;
+    /* The source keyboard geometry is 684x510. M4 keeps the key grid's
+     * proportions but maps it into a 432x320 input surface at the native
+     * 480x800 canvas; no full-screen bitmap scaling is involved. */
+    int left = x * keyboard_width / 684;
+    int right = (x + w) * keyboard_width / 684;
+    int y_offset = y < 0 ? y : y * 320 / 510;
+    int bottom_offset = y + h < 0 ? y + h : (y + h) * 320 / 510;
+    return (EpdRect){24 + left, top + y_offset, right - left, bottom_offset - y_offset};
+}
+static int keyboard_font_px(int px) { return px < 16 ? 14 : px < 24 ? 16 : px < 30 ? 18 : 20; }
+#else
 static EpdRect rect(int x, int y, int w, int h, int top) { return (EpdRect){x, y + top, w, h}; }
+static int keyboard_font_px(int px) { return px; }
+#endif
 static bool load_candidates(size_t start) {
     if (!s_candidates || !s_edit || !s_chinese) return false;
     char before[129]; size_t n = s_edit->cursor;
@@ -113,8 +132,20 @@ static void key_paint(uint8_t *fb, EpdRect r, const char *text, int px, bool dar
     if (s_probe) { if (ui_rect_hit(r, s_probe_x, s_probe_y)) s_key_clip = r; return; }
     if (s_keys_only && !intersects(r, s_key_clip)) return;
     bool pressed = s_pressed && same_rect(r, s_pressed_area);
-    ui_fill_round_rect(fb, r, 12, dark ? (pressed ? 0x50 : UI_GRAY_BLACK) : pressed ? 0xb0 : utility ? 0xd8 : UI_GRAY_WHITE);
-    ui_draw_round_rect(fb, r, 12, pressed ? 0x20 : 0x60);
+    ui_fill_round_rect(fb, r,
+#if KIIKO_BOARD_MURPHY_M4
+                       8,
+#else
+                       12,
+#endif
+                       dark ? (pressed ? 0x50 : UI_GRAY_BLACK) : pressed ? 0xb0 : utility ? 0xd8 : UI_GRAY_WHITE);
+    ui_draw_round_rect(fb, r,
+#if KIIKO_BOARD_MURPHY_M4
+                       8,
+#else
+                       12,
+#endif
+                       pressed ? 0x20 : 0x60);
     if (!strcmp(text, "⌫")) {
         int cx = r.x + r.width / 2, cy = r.y + r.height / 2 + (pressed ? 2 : 0);
         for (int d = 0; d < 2; ++d) {
@@ -136,7 +167,9 @@ static void key_paint(uint8_t *fb, EpdRect r, const char *text, int px, bool dar
             epd_draw_line(cx+points[i-1][0]+d,cy+points[i-1][1],cx+points[i][0]+d,cy+points[i][1],dark?UI_GRAY_WHITE:UI_GRAY_BLACK,fb);
 #else
 #endif
-    } else ui_text_fixed_vc(fb, r.x + r.width / 2, r.y + r.height / 2 + (pressed ? 2 : 0), px, text, EPD_DRAW_ALIGN_CENTER, dark);
+    } else ui_text_fixed_vc(fb, r.x + r.width / 2, r.y + r.height / 2 + (pressed ? 2 : 0),
+                            keyboard_font_px(px),
+                            text, EPD_DRAW_ALIGN_CENTER, dark);
 }
 static size_t visible(size_t start, EpdRect boxes[5], int top) {
     if (!s_candidates || !s_chinese) return 0;
@@ -209,19 +242,29 @@ static void composition_text(char out[UI_IME_RAW_MAX * 7 + 1]) {
     }
 }
 static void paint_words(uint8_t *fb, int top) {
-    if (!s_probe && !s_keys_only && s_notice[0]) ui_text_fixed_vc(fb, 28, top + 75, 22, s_notice, EPD_DRAW_ALIGN_LEFT, false);
+    if (!s_probe && !s_keys_only && s_notice[0]) ui_text_fixed_vc(fb,
+        KIIKO_BOARD_MURPHY_M4 ? 28 : 28, top + (KIIKO_BOARD_MURPHY_M4 ? 48 : 75),
+        KIIKO_BOARD_MURPHY_M4 ? 16 : 22,
+        s_notice, EPD_DRAW_ALIGN_LEFT, false);
     else if (!s_probe && !s_keys_only && s_raw[0]) {
         char text[UI_IME_RAW_MAX * 7 + 1]; composition_text(text);
-        ui_text_input_composition(fb, text, rect(28, 57, 552, 35, top), 25);
+        ui_text_input_composition(fb, text, rect(28, 57, 552, 35, top),
+                                  keyboard_font_px(25)
+                                  );
     }
-    else if (!s_probe && !s_keys_only) ui_text_fixed_vc(fb, 28, top + 75, 22, s_chinese ? "连续输入拼音，选择词语" : "轻点输入，可切换大小写", EPD_DRAW_ALIGN_LEFT, false);
+    else if (!s_probe && !s_keys_only) ui_text_fixed_vc(fb,
+        KIIKO_BOARD_MURPHY_M4 ? 28 : 28, top + (KIIKO_BOARD_MURPHY_M4 ? 48 : 75),
+        KIIKO_BOARD_MURPHY_M4 ? 16 : 22,
+        s_chinese ? "连续输入拼音，选择词语" : "轻点输入，可切换大小写", EPD_DRAW_ALIGN_LEFT, false);
     EpdRect boxes[5]; size_t count = visible(s_page, boxes, top);
     for (size_t i = 0; i < count; ++i) {
         char text[UI_IME_TEXT_MAX]; snprintf(text, sizeof(text), "%s", s_candidates->items[s_page + i].text);
-        while (strlen(text) && ui_text_fixed_width_px(25, text) > boxes[i].width - 12) {
+        while (strlen(text) && ui_text_fixed_width_px(
+                                   keyboard_font_px(25),
+                                   text) > boxes[i].width - 12) {
             size_t n = strlen(text) - 1; while (n && ((unsigned char)text[n] & 192) == 128) --n; text[n] = 0;
         }
-        key_paint(fb, boxes[i], text, 25, false, i == 0);
+        key_paint(fb, boxes[i], text, keyboard_font_px(25), false, i == 0);
     }
     key_paint(fb, rect(24, 104, 44, 56, top), "‹", 30, false, true);
     key_paint(fb, rect(616, 104, 44, 56, top), "›", 30, false, true);
@@ -233,12 +276,20 @@ static void paint_syllables(uint8_t *fb, int top) {
 }
 void ui_keyboard_draw(uint8_t *fb, int top) {
     if (!s_probe && !s_keys_only) {
+#if KIIKO_BOARD_MURPHY_M4
+    ui_fill_round_rect(fb, rect(16, -12, 652, 534, top), 12, 0xe8);
+    ui_draw_round_rect(fb, rect(16, -12, 652, 534, top), 12, 0x60);
+#else
     ui_fill_round_rect(fb, rect(16, -12, 652, 534, top), 26, 0xe8);
     ui_draw_round_rect(fb, rect(16, -12, 652, 534, top), 26, 0x60);
+#endif
     }
-    key_paint(fb, rect(24, 0, 144, 44, top), "九宫格", 24, s_nine, s_ascii || !s_candidates);
-    key_paint(fb, rect(176, 0, 144, 44, top), "全键盘", 24, !s_nine, false);
-    if (!s_probe && !s_keys_only) ui_text_fixed_vc(fb, 651, top + 22, 24, s_ascii ? "英文密码" : s_chinese ? "中文拼音" : s_upper ? "英文大写" : "英文小写", EPD_DRAW_ALIGN_RIGHT, false);
+    key_paint(fb, rect(24, 0, 144, 44, top), "九宫格", keyboard_font_px(24), s_nine, s_ascii || !s_candidates);
+    key_paint(fb, rect(176, 0, 144, 44, top), "全键盘", keyboard_font_px(24), !s_nine, false);
+    if (!s_probe && !s_keys_only) ui_text_fixed_vc(fb,
+        KIIKO_BOARD_MURPHY_M4 ? 452 : 651, top + (KIIKO_BOARD_MURPHY_M4 ? 17 : 22),
+        KIIKO_BOARD_MURPHY_M4 ? 14 : 24,
+        s_ascii ? "英文密码" : s_chinese ? "中文拼音" : s_upper ? "英文大写" : "英文小写", EPD_DRAW_ALIGN_RIGHT, false);
     paint_words(fb, top);
     if (s_panel || !s_nine) {
         static const char *const rows[] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
@@ -250,7 +301,7 @@ void ui_keyboard_draw(uint8_t *fb, int top) {
                 if (s_panel == 1) { letter[0] = row == 0 ? "1234567890"[col] : ascii_symbols[(row - 1) * 10 + col][0]; label = letter; }
                 else if (s_panel >= 2) label = (s_chinese && !s_ascii && s_panel != 3 ? symbols : ascii_symbols)[s_panel == 3 && row == 0 && col < 6 ? (const int[]){30,31,28,29,26,27}[col] : row * 10 + col];
                 else { letter[0] = s_upper ? rows[row][col] - 32 : rows[row][col]; label = letter; }
-                key_paint(fb, rect(left + col * 64, 180 + row * 78, 56, 68, top), label, 28, false, false);
+                key_paint(fb, rect(left + col * 64, 180 + row * 78, 56, 68, top), label, keyboard_font_px(28), false, false);
             }
         }
         if (s_panel) {
@@ -295,9 +346,14 @@ static void letter_key(char letter) {
     s_notice[0] = 0; s_raw[n] = letter; s_raw[n + 1] = 0; refresh();
 }
 static ui_keyboard_result_t tap(int x, int y, int top) {
-    if (!s_edit || y < top || y >= top + 510 || x < 24 || x >= 660) return UI_KEYBOARD_NONE;
+    const int word_top = top + (KIIKO_BOARD_MURPHY_M4 ? 65 : 104);
+    const int word_bottom = top + (KIIKO_BOARD_MURPHY_M4 ? 100 : 160);
+    const int actions_top = top + (KIIKO_BOARD_MURPHY_M4 ? 270 : 430);
+    const int actions_bottom = top + (KIIKO_BOARD_MURPHY_M4 ? 314 : 502);
+    if (!s_edit || y < top || y >= top + (KIIKO_BOARD_MURPHY_M4 ? 320 : 510) ||
+        x < 24 || x >= (KIIKO_BOARD_MURPHY_M4 ? 456 : 660)) return UI_KEYBOARD_NONE;
     if (ui_rect_hit(rect(24, 0, 144, 44, top), x, y) || ui_rect_hit(rect(176, 0, 144, 44, top), x, y)) {
-        bool nine = x < 168;
+        bool nine = ui_rect_hit(rect(24, 0, 144, 44, top), x, y);
         if ((nine && (s_ascii || !s_candidates)) || (nine == s_nine && !s_panel)) return UI_KEYBOARD_NONE;
         if (s_raw[0] && nine != s_nine) {
             char converted[UI_IME_RAW_MAX + 1];
@@ -310,27 +366,27 @@ static ui_keyboard_result_t tap(int x, int y, int top) {
         if (nine) { s_chinese = true; s_upper = false; }
         s_preferred[0] = 0; refresh(); return UI_KEYBOARD_CHANGED;
     }
-    if (y >= top + 104 && y < top + 160) {
-        if (x < 68) return ui_keyboard_page(-1) ? UI_KEYBOARD_CHANGED : UI_KEYBOARD_NONE;
-        if (x >= 616) return ui_keyboard_page(1) ? UI_KEYBOARD_CHANGED : UI_KEYBOARD_NONE;
+    if (y >= word_top && y < word_bottom) {
+        if (x < (KIIKO_BOARD_MURPHY_M4 ? 68 : 68)) return ui_keyboard_page(-1) ? UI_KEYBOARD_CHANGED : UI_KEYBOARD_NONE;
+        if (x >= (KIIKO_BOARD_MURPHY_M4 ? 412 : 616)) return ui_keyboard_page(1) ? UI_KEYBOARD_CHANGED : UI_KEYBOARD_NONE;
         EpdRect boxes[5]; size_t count = visible(s_page, boxes, top);
         for (size_t i = 0; i < count; ++i) if (ui_rect_hit(boxes[i], x, y)) { commit(s_page + i); return UI_KEYBOARD_CHANGED; }
         return UI_KEYBOARD_NONE;
     }
-    if (y >= top + 430 && y < top + 502) {
-        if (x >= 534) {
+    if (y >= actions_top && y < actions_bottom) {
+        if (x >= (KIIKO_BOARD_MURPHY_M4 ? 360 : 534)) {
             if (!s_raw[0]) return UI_KEYBOARD_DONE;
             snprintf(s_notice, sizeof(s_notice), "请先选择词语，再保存");
-        } else if (x >= 434) {
+        } else if (x >= (KIIKO_BOARD_MURPHY_M4 ? 289 : 434)) {
             if (s_nine) return UI_KEYBOARD_NONE;
             if (s_raw[0]) snprintf(s_notice, sizeof(s_notice), "请先选词，再切换语言");
             else if (!s_ascii && s_candidates) { s_chinese = !s_chinese; refresh(); }
             else snprintf(s_notice, sizeof(s_notice), "密码使用英文、数字与符号");
-        } else if (x >= 206) {
+        } else if (x >= (KIIKO_BOARD_MURPHY_M4 ? 154 : 206)) {
             if (s_raw[0]) { if (!commit(s_page)) snprintf(s_notice, sizeof(s_notice), "未识别拼音，请继续输入或重输"); }
             else insert(" ");
         } else if (s_raw[0]) snprintf(s_notice, sizeof(s_notice), "请先选词，再输入数字符号");
-        else if (x < 110) s_panel = s_panel ? 0 : 1;
+        else if (x < (KIIKO_BOARD_MURPHY_M4 ? 94 : 110)) s_panel = s_panel ? 0 : 1;
         else s_panel = s_panel == 2 ? 3 : 2;
         return UI_KEYBOARD_CHANGED;
     }

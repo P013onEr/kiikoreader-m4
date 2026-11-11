@@ -19,6 +19,11 @@
 #include "ui_locale_format.h"
 #endif
 #include "read_pico_search.h"
+#include "ble_page_turner.h"
+#if KIIKO_BOARD_MURPHY_M4
+extern esp_err_t ble_pt_network_acquire(void);
+extern void ble_pt_network_release(void);
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -2426,8 +2431,8 @@ static bool time_sync_cancelled(void) {
 }
 static esp_err_t sync_time_online_impl(uint32_t *utc_seconds);
 static esp_err_t time_sync_ntp(uint32_t *utc_seconds) {
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(3,
-        ESP_SNTP_SERVER_LIST("ntp.aliyun.com", "time.cloudflare.com", "pool.ntp.org"));
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(1,
+        ESP_SNTP_SERVER_LIST("ntp.aliyun.com"));
     if (time_sync_cancelled()) return ESP_ERR_INVALID_STATE;
     esp_err_t err = esp_netif_sntp_init(&config);
     if (err != ESP_OK) return err;

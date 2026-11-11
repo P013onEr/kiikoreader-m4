@@ -3,10 +3,16 @@
  * English: Lightweight navigation bounds shared by painting and presentation to protect fixed icons.
  */
 #pragma once
+#if KIIKO_BOARD_MURPHY_M4
+#define UI_NAV_TOP 736
+#else
 #define UI_NAV_TOP 1096
+#endif
 // 只扩大触控热区，不移动图标或改变内容/底栏的刷新边界。
 // Expand touch admission only; icons and content/navigation refresh boundaries stay fixed.
 #define UI_NAV_TOUCH_TOP (UI_NAV_TOP - 16)
+#define UI_PAGER_TOP (UI_NAV_TOP - 90)
+#define UI_NAV_HEIGHT (UI_LOCK_HEIGHT - UI_NAV_TOP)
 #define UI_NAV_MARKER_TOP (UI_NAV_TOP + 1)
 #define UI_NAV_MARKER_BOTTOM (UI_NAV_TOP + 6)
 // 内容向内收至32列边界；横条单独短刷或并入快刷，外扩范围均止于图标首笔之前。

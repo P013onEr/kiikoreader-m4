@@ -1,0 +1,17 @@
+{
+  "id": "murphy_m4",
+  "name": "Murphy M4",
+  "idf_target": "esp32s3",
+  "flash_size": "16MB",
+  "flash_mode": "dio",
+  "psram_size": "8MB",
+  "psram_mode": "opi",
+  "project": "Kiikoread_Murphy_M4",
+  "image_chip_id": 9,
+  "version": "0.3.3-rc110",
+  "sdkconfig": "sdkconfig.defaults",
+  "partitions": "partitions.csv",
+  "settings_namespace": "murphy_m4",
+  "online_ota": false,
+  "bootloader_offset": 0
+}

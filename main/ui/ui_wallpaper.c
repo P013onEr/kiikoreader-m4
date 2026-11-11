@@ -87,6 +87,8 @@ static bool image_pixels(uint8_t *fb, uint8_t *pixels, const char *path, EpdRect
     if (stat(path, &st) || st.st_size <= 0 || (uint64_t)st.st_size > BOOK_IMAGE_FILE_MAX) return false;
     unsigned source_w = 0, source_h = 0;
     bool ok = book_image_file_dimensions(path, png, &source_w, &source_h);
+    const unsigned max_dimension = UI_LOCK_WIDTH > UI_LOCK_HEIGHT ? UI_LOCK_WIDTH : UI_LOCK_HEIGHT;
+    const uint64_t max_pixels = (uint64_t)UI_LOCK_WIDTH * UI_LOCK_HEIGHT;
     unsigned width = (unsigned)area.width, height = (unsigned)area.height;
     bool source_wider = ok && (uint64_t)source_w * height > (uint64_t)source_h * width;
     if (source_wider) width = (unsigned)(((uint64_t)height * source_w + source_h - 1) / source_h);
@@ -95,19 +97,19 @@ static bool image_pixels(uint8_t *fb, uint8_t *pixels, const char *path, EpdRect
     if (!height) height = 1;
     // 保持原始宽高比，并受解码器边长限制；宽图只缩一次，避免过度降采样。
     // Preserve source aspect ratio within decoder limits; avoid repeatedly downsampling wide photos.
-    if (width > 1216u) {
-        width = 1216u;
+    if (width > max_dimension) {
+        width = max_dimension;
         height = (unsigned)(((uint64_t)width * source_h + source_w / 2u) / source_w);
-    } else if (height > 1216u) {
-        height = 1216u;
+    } else if (height > max_dimension) {
+        height = max_dimension;
         width = (unsigned)(((uint64_t)height * source_w + source_h / 2u) / source_h);
     }
     if (!width) width = 1;
     if (!height) height = 1;
     // 缓冲区最多一屏像素；最终从原比例灰阶图居中裁切到目标区域。
     // Cap the buffer to one screen and center-crop the aspect-preserved gray image to the target.
-    while (ok && (width > 1216u || height > 1216u ||
-                  (uint64_t)width * height > 684u * 1216u)) {
+    while (ok && (width > max_dimension || height > max_dimension ||
+                  (uint64_t)width * height > max_pixels)) {
         width = (width * 3u + 3u) / 4u;
         height = (height * 3u + 3u) / 4u;
     }
@@ -162,7 +164,7 @@ void ui_wallpaper_draw_avatar(uint8_t *fb, const uint8_t *pixels, EpdRect area, 
 #endif
 #endif
 #define WALL_LOCK_CACHE UI_WALLPAPER_CACHE_PARENT "/locks/wallpaper.bin"
-#define WALL_LOCK_BYTES (684u*1216u/2u)
+#define WALL_LOCK_BYTES ((size_t)UI_LOCK_WIDTH*UI_LOCK_HEIGHT/2u)
 #define WALL_LOCK_MAGIC UINT32_C(0x574c4b31)
 #if KIIKO_BOARD_METALIO47
 #define WALL_LOCK_VERSION 2u

@@ -26,6 +26,7 @@ unit = r'''
 #include <errno.h>
 typedef int esp_err_t;
 typedef int app_redraw_t;
+#include "storage_scan_filter.h"
 #define APP_REDRAW_PAGE 1
 enum {ESP_OK=0,ESP_ERR_INVALID_SIZE=-1,ESP_ERR_INVALID_ARG=-2,ESP_FAIL=-3,ESP_ERR_INVALID_STATE=-4};
 typedef struct {int id;} app_desc_t;
@@ -117,8 +118,12 @@ int main(void){
  snprintf(root,sizeof(root),"%s/Collection",original_root);snprintf(level2,sizeof(level2),"%s/Series",root);assert(!mkdir(level2,0700));scan_folder(3);assert(s_count==1&&s_files[0].is_dir&&!strcmp(file_item_name(&s_files[0]),"Series"));
  snprintf(root,sizeof(root),"%s/Collection/Series",original_root);make_file("nested.epub");scan_folder(3);assert(s_count==1&&!s_files[0].is_dir);s_selected=s_files[0];app_ctx_t nested={0};open_selected(&nested);assert(nested.request_app==&app_book&&strstr(opened,"Collection/Series/nested.epub"));clear_root();
  assert(!rmdir(level2)&&!rmdir(level1));strcpy(root,original_root);clear_root();
- // Existing hidden/type filters and media failures remain; no path is truncated into another target.
- make_file("short.epub");make_file(".hidden.epub");make_file("ignored.zip");scan_folder(0);assert(s_count==1&&find("short.epub")==0);
+ // OS metadata, lock files and unfinished downloads stay off the browser lists.
+ make_file("short.epub");make_file(".hidden.epub");make_file("ignored.zip");make_file("Thumbs.db");make_file("desktop.ini");make_file("~$draft.epub");make_file("partial.epub.part");
+ char osdir[512];snprintf(osdir,sizeof(osdir),"%s/System Volume Information",root);assert(!mkdir(osdir,0700));
+ scan_folder(0);assert(s_count==1&&find("short.epub")==0);
+ scan_folder(3);assert(s_count==2&&find("short.epub")>=0&&find("ignored.zip")>=0);
+ assert(!rmdir(osdir));
  card=false;scan_folder(0);assert(!s_count&&s_message[0]);card=true;scan_folder(3);assert(s_count==2);clear_root();
  // The existing complete-path bound still rejects overflow instead of targeting a truncated sibling.
  char saved_root[80];strcpy(saved_root,root);strcat(root,"/nested-directory-long");assert(!mkdir(root,0700));
@@ -139,5 +144,6 @@ with tempfile.TemporaryDirectory(prefix='file-browser-names-') as folder:
         output = work/f'board-{board}'
         subprocess.run(['cc', '-std=gnu11', '-g', '-Wall', '-Wextra', '-Werror',
                         '-fsanitize=address,undefined', f'-DKIIKO_BOARD_METALIO47={board}',
+                        '-I', str(ROOT / 'main'),
                         str(work/'test.c'), '-o', str(output)], check=True)
         subprocess.run([str(output)], check=True)

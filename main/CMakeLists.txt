@@ -1,5 +1,50 @@
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/board.cmake")
-if(KIIKO_BOARD_METALIO47)
+if(KIIKO_BOARD_MURPHY_M4)
+    kiiko_board_sources(kiiko_selected_sources "${CMAKE_CURRENT_LIST_DIR}" "app_main.cpp"
+        "m4_project_reader.cpp" "m4_project_draw.c" "m4_app_backend.c" "m4_display_bridge.cpp" "m4_image_draw.c" "m4_font_settings.c"
+        "m4_reader_settings.c" "m4_gray2.c" "m4_project_ui_adapter.c" "m4_book_store_adapter.c"
+        "m4_project_runtime_compat.c"
+        # Shared project drawing primitives. These are compiled for M4 now so
+        # the native pages can be connected through the adapter without a
+        # second icon/text implementation.
+        "ui/ui_kit.c" "ui/ui_home_widget.c" "ui/ui_home_clock.c" "ui/ui_image_dither.c"
+        "ui/ui_text_edit.c" "ui/ui_text_input.c" "ui/ui_ime.c" "ui/ui_keyboard.c" "ui/ui_gesture.c"
+        "ui/ui_glass.c" "ui/ui_pinpad.c" "ui/ui_power_dialog.c" "ui/ui_quick_menu.c"
+        "ui/ui_click_feedback.c" "ui/ui_menu.c" "ui/ui_nav.c" "ui/ui_wallpaper.c" "ui/ui_avatar.c"
+        "ui/ui_reader_background.c" "ui/ui_lock_feedback.c" "ui/ui_quick_menu_input.c"
+        "ui/ui_wifi_qr.c"
+        "settings.c" "setup_state.c" "boot_state.c" "time_service.c"
+        "app/crash_note.c"
+        "font/app_font_context.c"
+        "apps/book_toc.c" "apps/file_tree.c" "apps/file_search.c"
+        "book/book_history_backup.c" "book/book_ticket.c" "book/book_excerpt.c" "book/book_lock_collage.c" "book/book_lock_bookmark.c"
+        "book/book_cover_jobs.c" "book/reader_page_cache.c" "font/app_font_context.c"
+        "book/book_source.c" "book/book_txt.c" "book/gbk.c" "book/book_epub.c" "book/book_index_cache.c" "book/book_image_header.c" "book/book_title.c"
+        "book/book_cover.c" "book/book_cover_auto.c" "book/book_layout.c" "book/book_progress.c" "book/book_added.c" "book/book_store.c" "book/html_text.c" "book/zip_reader.c"
+        "font/ttf_font.c" "font/ui_font.c" "font/ui_hanzi.c")
+    list(APPEND kiiko_selected_sources
+        "app/app_loop.c"
+        "lock_pin.c" "lock_pin_flow.c"
+        "ui/ui_pinpad.c"
+        "app/app_registry.c"
+        "apps/app_dashboard.c"
+        "apps/app_book.c"
+        "apps/app_files.c"
+        "apps/app_image.c"
+        "apps/app_device_settings.c"
+        "apps/app_transfer.c"
+        "m4_usb_storage.c")
+    idf_component_register(SRCS ${kiiko_selected_sources}
+        REQUIRES kiiko_locale kiiko_board freeink-sdk cst836u app_update read_pico_transfer read_pico_search ble_page_turner espressif__qrcode
+            esp_wifi esp_netif esp_event esp_http_server bt esp_driver_gpio esp_driver_sdmmc esp_driver_spi esp_timer fatfs
+            heap nvs_flash esp_rom defensiblelogic__lowzag espressif__esp_jpeg jpegdec
+            read_pico_webp espressif__libpng espressif__zlib
+            mbedtls
+        INCLUDE_DIRS "." "app" "apps" "ui" "book" "font" "factory" "m4_epdiy_compat"
+            EMBED_FILES "assets/builtin.ttf" "assets/ui-hanzi.bin")
+    target_include_directories(${COMPONENT_LIB} PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/../boards/murphy_m4/src/main")
+elseif(KIIKO_BOARD_METALIO47)
 set(main_requires
     kiiko_locale
     kiiko_board

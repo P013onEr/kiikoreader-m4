@@ -16,8 +16,13 @@
 #include "ui_kit.h"
 #include "ui_nav.h"
 
+#if KIIKO_BOARD_MURPHY_M4
+enum { TOC_LEFT = 24, TOC_RIGHT = 456, TOC_ROW_TOP = 246,
+       TOC_ROW_STEP = 68, TOC_ROW_HEIGHT = 60 };
+#else
 enum { TOC_LEFT = 36, TOC_RIGHT = 648, TOC_ROW_TOP = 252,
        TOC_ROW_STEP = 108, TOC_ROW_HEIGHT = 94 };
+#endif
 enum { TOC_VOLUME_HIT = -1000 };
 static size_t s_open_volume=SIZE_MAX;
 static bool s_volume_picker;
@@ -147,6 +152,16 @@ static void toc_title(uint8_t *fb, EpdRect box, int preferred_px, const char *te
 }
 
 int book_toc_hit(uint16_t x, uint16_t y, int page, size_t chapters) {
+#if KIIKO_BOARD_MURPHY_M4
+    if (x < 96 && y >= 48 && y < 112) return BOOK_TOC_BACK;
+    if (y >= 660 && y < 712) {
+        if (x >= 24 && x < 88) return BOOK_TOC_SKIP_PREV;
+        if (x >= 96 && x < 176) return BOOK_TOC_PREV;
+        if (x >= 304 && x < 384) return BOOK_TOC_NEXT;
+        if (x >= 392 && x < 456) return BOOK_TOC_SKIP_NEXT;
+    }
+    if (x >= 24 && x < 456 && y >= 720 && y < 776) return BOOK_TOC_JUMP;
+#else
     if (x < 100 && y >= 76 && y < 151) return BOOK_TOC_BACK;
     if (y >= 1018 && y < 1086) {
         if (x >= 36 && x < 136) return BOOK_TOC_SKIP_PREV;
@@ -161,6 +176,7 @@ int book_toc_hit(uint16_t x, uint16_t y, int page, size_t chapters) {
         }
         return BOOK_TOC_JUMP;
     }
+#endif
     for (int row = 0; row < BOOK_TOC_ROWS; ++row) {
         size_t index = (size_t)page * BOOK_TOC_ROWS + row;
         int target=visible_target(index,chapters);
@@ -171,10 +187,17 @@ int book_toc_hit(uint16_t x, uint16_t y, int page, size_t chapters) {
 }
 
 int book_toc_jump_hit(uint16_t x, uint16_t y) {
+#if KIIKO_BOARD_MURPHY_M4
+    if (x >= 36 && x < 220 && y >= 596 && y < 648) return BOOK_TOC_JUMP_CANCEL;
+    if (x >= 260 && x < 444 && y >= 596 && y < 648) return BOOK_TOC_JUMP_CONFIRM;
+    if (x >= 48 && x < 432 && y >= 404 && y < 468) return BOOK_TOC_JUMP_TRACK;
+    return -1;
+#else
     if (x >= 75 && x < 330 && y >= 850 && y < 907) return BOOK_TOC_JUMP_CANCEL;
     if (x >= 354 && x < 609 && y >= 850 && y < 907) return BOOK_TOC_JUMP_CONFIRM;
     if (x >= 75 && x < 609 && y >= 600 && y < 711) return BOOK_TOC_JUMP_TRACK;
     return -1;
+#endif
 }
 
 int book_toc_jump_percent(uint16_t x) {
@@ -221,35 +244,35 @@ void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
     ui_clear_page(fb);
     ui_fill_rect_fast((EpdRect){0, 0, UI_LOCK_WIDTH, UI_LOCK_HEIGHT}, 0xe0, fb);
     ui_nav_status(fb);
-    ui_nav_back(fb, TOC_LEFT, 79);
-    ui_text_box(fb,(EpdRect){120,79,444,72},34,s_volume_picker?"选择卷":"目录",EPD_DRAW_ALIGN_CENTER,false);
+    ui_nav_back(fb, TOC_LEFT, KIIKO_BOARD_MURPHY_M4 ? 48 : 79);
+    ui_text_box(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){96,48,288,48}:(EpdRect){120,79,444,72},KIIKO_BOARD_MURPHY_M4?24:34,s_volume_picker?"选择卷":"目录",EPD_DRAW_ALIGN_CENTER,false);
 
     char title[160];
     one_line(title, sizeof(title), book_title ? book_title : "");
     if (!title[0]) snprintf(title,sizeof(title),"%s","当前书籍");
-    toc_title(fb, (EpdRect){TOC_LEFT,160,420,48}, 23, title, 0xe0);
+    toc_title(fb, KIIKO_BOARD_MURPHY_M4?(EpdRect){TOC_LEFT,116,300,40}:(EpdRect){TOC_LEFT,160,420,48}, KIIKO_BOARD_MURPHY_M4?18:23, title, 0xe0);
     char total[48];
     size_t volumes=book_navigation_volume_count();
     book_volume_t first_volume;
     bool front=book_navigation_volume(0,&first_volume)&&first_volume.number==0;
     if(volumes)snprintf(total,sizeof(total),"%u 卷",(unsigned)(volumes-front));
     else snprintf(total, sizeof(total), "%u 节", (unsigned)chapters);
-    ui_text_box(fb,(EpdRect){482,160,166,48},23,total,EPD_DRAW_ALIGN_RIGHT,false);
-    ui_fill_rect_fast((EpdRect){TOC_LEFT, 213, TOC_RIGHT - TOC_LEFT, 2}, 0x68, fb);
+    ui_text_box(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){330,116,126,40}:(EpdRect){482,160,166,48},KIIKO_BOARD_MURPHY_M4?17:23,total,EPD_DRAW_ALIGN_RIGHT,false);
+    ui_fill_rect_fast((EpdRect){TOC_LEFT, KIIKO_BOARD_MURPHY_M4?164:213, TOC_RIGHT - TOC_LEFT, 2}, 0x68, fb);
     if(volumes) {
         size_t group=book_navigation_volume_for(current);
         char volume[160];
         if(s_volume_picker)
-            toc_title(fb,(EpdRect){TOC_LEFT,216,TOC_RIGHT-TOC_LEFT,30},20,"点选卷名，展开该卷目录",0xe0);
+            toc_title(fb,(EpdRect){TOC_LEFT,KIIKO_BOARD_MURPHY_M4?170:216,TOC_RIGHT-TOC_LEFT,30},KIIKO_BOARD_MURPHY_M4?16:20,"点选卷名，展开该卷目录",0xe0);
         else if(book_navigation_volume_title(group,volume,sizeof(volume))==ESP_OK)
-            toc_title(fb,(EpdRect){TOC_LEFT,216,TOC_RIGHT-TOC_LEFT,30},20,volume,0xe0);
+            toc_title(fb,(EpdRect){TOC_LEFT,KIIKO_BOARD_MURPHY_M4?170:216,TOC_RIGHT-TOC_LEFT,30},KIIKO_BOARD_MURPHY_M4?16:20,volume,0xe0);
     }
 
     if (message && *message) {
         char info[160];one_line(info,sizeof(info),message);fit_line(info,ui_text_effective_px(23),540);
-        ui_text_box(fb,(EpdRect){72,408,540,72},23,info,EPD_DRAW_ALIGN_CENTER,false);
+        ui_text_box(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){32,384,416,64}:(EpdRect){72,408,540,72},KIIKO_BOARD_MURPHY_M4?18:23,info,EPD_DRAW_ALIGN_CENTER,false);
     } else if (!chapters) {
-        ui_text_box(fb,(EpdRect){72,408,540,72},25,"这本书没有可用目录",EPD_DRAW_ALIGN_CENTER,false);
+        ui_text_box(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){32,384,416,64}:(EpdRect){72,408,540,72},KIIKO_BOARD_MURPHY_M4?18:25,"这本书没有可用目录",EPD_DRAW_ALIGN_CENTER,false);
     } else {
         for (int row = 0; row < BOOK_TOC_ROWS; ++row) {
             int target=visible_target((size_t)page*BOOK_TOC_ROWS+row,chapters);
@@ -263,9 +286,9 @@ void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
                 char title[160],count[32];
                 if(book_navigation_volume_title(group,title,sizeof(title))!=ESP_OK)
                     snprintf(title,sizeof(title),"第 %u 卷",(unsigned)group+1);
-                toc_title(fb,(EpdRect){r.x+54,r.y+9,416,76},29,title,background);
+                toc_title(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){r.x+42,r.y+4,300,52}:(EpdRect){r.x+54,r.y+9,416,76},KIIKO_BOARD_MURPHY_M4?18:29,title,background);
                 snprintf(count,sizeof(count),"%u 节",(unsigned)volume_body_count(group));
-                toc_title(fb,(EpdRect){r.x+478,r.y+9,112,76},21,count,background);
+                toc_title(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){r.x+344,r.y+4,72,52}:(EpdRect){r.x+478,r.y+9,112,76},KIIKO_BOARD_MURPHY_M4?15:21,count,background);
                 continue;
             }
             size_t index=(size_t)target;
@@ -277,7 +300,7 @@ void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
             char number[16];
             if(volumes)snprintf(number,sizeof(number),"·");
             else snprintf(number, sizeof(number), "%02u", (unsigned)index + 1);
-            ui_text_box(fb,(EpdRect){r.x+14,r.y+11,58,72},21,number,EPD_DRAW_ALIGN_LEFT,false);
+            ui_text_box(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){r.x+8,r.y+5,34,48}:(EpdRect){r.x+14,r.y+11,58,72},KIIKO_BOARD_MURPHY_M4?15:21,number,EPD_DRAW_ALIGN_LEFT,false);
             char raw[160] = "", label[160];
             if (book_navigation_title(index, raw, sizeof(raw)) != ESP_OK || !raw[0])
                 snprintf(raw, sizeof(raw), "第 %u 节", (unsigned)index + 1);
@@ -287,13 +310,27 @@ void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
                 snprintf(raw, sizeof(raw), "第 %u 节", (unsigned)index + 1);
             one_line(label, sizeof(label), raw);
             if (!label[0]) snprintf(label, sizeof(label), "第 %u 节", (unsigned)index + 1);
-            toc_title(fb, (EpdRect){r.x+79,r.y+9,selected?420:495,76}, 30, label,
+            toc_title(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){r.x+46,r.y+4,selected?324:366,52}:(EpdRect){r.x+79,r.y+9,selected?420:495,76},KIIKO_BOARD_MURPHY_M4?18:30,label,
                        selected ? 0xc0 : UI_GRAY_WHITE);
             if (selected)
-                ui_text_box(fb,(EpdRect){r.x+r.width-93,r.y+11,71,72},24,"当前",EPD_DRAW_ALIGN_RIGHT,false);
+                ui_text_box(fb,KIIKO_BOARD_MURPHY_M4?(EpdRect){r.x+r.width-42,r.y+4,34,52}:(EpdRect){r.x+r.width-93,r.y+11,71,72},KIIKO_BOARD_MURPHY_M4?14:24,"当前",EPD_DRAW_ALIGN_RIGHT,false);
         }
     }
     const int pages = book_toc_pages(chapters);
+#if KIIKO_BOARD_MURPHY_M4
+    toc_pill(fb, (EpdRect){24, 660, 64, 52}, "«", 20, false);
+    toc_pill(fb, (EpdRect){96, 660, 80, 52}, "‹", 20, false);
+    char position[32]; snprintf(position, sizeof(position), "%02d / %02d", page + 1, pages);
+    toc_pill(fb, (EpdRect){184, 660, 112, 52}, position, 17, true);
+    toc_pill(fb, (EpdRect){304, 660, 80, 52}, "›", 20, false);
+    toc_pill(fb, (EpdRect){392, 660, 64, 52}, "»", 20, false);
+    EpdRect jump={24,720,432,56};
+    ui_fill_round_rect(fb,jump,16,UI_GRAY_WHITE);toc_border(fb,jump,16,false);
+    ui_text_box(fb,(EpdRect){40,728,300,38},17,volumes?"选择卷 / 百分比跳转":"按百分比跳转",EPD_DRAW_ALIGN_LEFT,false);
+    char percent[24];snprintf(percent,sizeof(percent),"%d%% ›",(page+1)*100/pages);
+    ui_text_box(fb,(EpdRect){346,728,92,38},17,percent,EPD_DRAW_ALIGN_RIGHT,false);
+    return;
+#else
     toc_pill(fb, (EpdRect){36, 1018, 100, 68}, "« 10页", 24, false);
     toc_pill(fb, (EpdRect){146, 1018, 112, 68}, "‹ 上页", 26, false);
     char position[32]; snprintf(position, sizeof(position), "%02d / %02d", page + 1, pages);
@@ -320,11 +357,32 @@ void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
     char percent[24];
     snprintf(percent, sizeof(percent), "%d%%  ›", (page + 1) * 100 / pages);
     ui_text_box(fb,(EpdRect){468,1109,158,56},28,percent,EPD_DRAW_ALIGN_RIGHT,false);
+#endif
 }
 
 void book_toc_render_jump(uint8_t *fb, size_t chapters, int percent) {
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
+#if KIIKO_BOARD_MURPHY_M4
+    EpdRect card={24,142,432,584};
+    ui_fill_round_rect(fb,card,16,UI_GRAY_WHITE);toc_border(fb,card,16,true);
+    ui_text_box(fb,(EpdRect){40,164,400,38},22,"跳到目录位置",EPD_DRAW_ALIGN_CENTER,false);
+    ui_text_box(fb,(EpdRect){40,204,400,32},16,"选择百分比，预览目标页",EPD_DRAW_ALIGN_CENTER,false);
+    char value[24];snprintf(value,sizeof(value),"%d%%",percent);
+    ui_text_box(fb,(EpdRect){40,274,400,54},38,value,EPD_DRAW_ALIGN_CENTER,false);
+    ui_fill_round_rect(fb,(EpdRect){48,432,384,8},4,0x80);
+    int width=384*percent/100;if(width)ui_fill_round_rect(fb,(EpdRect){48,432,width,8},4,0x40);
+    int knob=48+width;epd_fill_circle(knob,436,18,UI_GRAY_WHITE,fb);epd_draw_circle(knob,436,18,0x40,fb);
+    static const char *ticks[]={"0","25","50","75","100%"};
+    for(int i=0;i<5;++i)ui_text_box(fb,(EpdRect){24+i*108,456,72,28},14,ticks[i],EPD_DRAW_ALIGN_CENTER,false);
+    int pages=book_toc_pages(chapters),target=book_toc_page_from_percent(percent,pages);
+    char summary[96];snprintf(summary,sizeof(summary),chapters?"约第 %d / %d 页":"这本书没有可用目录",target+1,pages);
+    ui_text_box(fb,(EpdRect){40,506,400,42},16,summary,EPD_DRAW_ALIGN_CENTER,false);
+    toc_pill(fb,(EpdRect){36,596,184,52},"取消",19,false);
+    ui_fill_round_rect(fb,(EpdRect){260,596,184,52},14,0x40);
+    ui_text_box(fb,(EpdRect){268,604,168,36},19,"跳转",EPD_DRAW_ALIGN_CENTER,true);
+    return;
+#else
     EpdRect card = {44, 356, 596, 572};
     ui_fill_round_rect(fb, card, 30, UI_GRAY_WHITE);
     toc_border(fb, card, 30, true);
@@ -361,4 +419,5 @@ void book_toc_render_jump(uint8_t *fb, size_t chapters, int percent) {
     toc_pill(fb, (EpdRect){75, 850, 255, 57}, "取消", 26, false);
     ui_fill_round_rect(fb, (EpdRect){354, 850, 255, 57}, 20, 0x40);
     ui_text_box(fb,(EpdRect){362,858,239,41},26,"跳转",EPD_DRAW_ALIGN_CENTER,true);
+#endif
 }

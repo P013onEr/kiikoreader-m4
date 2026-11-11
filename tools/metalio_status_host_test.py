@@ -10,6 +10,13 @@ unit=r'''
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+#define KIIKO_BOARD_MURPHY_M4 0
+#define UI_STATUS_CENTER_Y 40
+#define UI_STATUS_TIME_X 36
+#define UI_STATUS_PERCENT_RIGHT 595
+#define UI_STATUS_SIGNATURE_MAX_WIDTH 280
+#define UI_STATUS_SIGNATURE_CENTER_X (UI_LOCK_WIDTH / 2)
+#define UI_STATUS_BATTERY_X 606
 #define UI_LOCK_WIDTH 684
 #define UI_GRAY_WHITE 0xf0
 #define UI_GRAY_BLACK 0
@@ -46,11 +53,12 @@ static void ui_draw_icon(uint8_t *p,int x,int y,int size,int icon,uint8_t gray){
 static void ui_nav_wifi_icon(uint8_t *p,int x,int y,int size,uint8_t gray){ui_draw_icon(p,x,y,size,UI_ICON_WIFI,gray);}
 static void ui_draw_round_rect(uint8_t *p,EpdRect r,int radius,uint8_t gray){(void)p;(void)radius;(void)gray;assert(r.y>=12&&r.y+r.height<=68);}
 static void ui_fill_round_rect(uint8_t *p,EpdRect r,int radius,uint8_t gray){
- if(r.x==614&&r.width==26&&r.height==20){assert(gray==0);++bolt_wells;}
+ if(r.x==UI_STATUS_BATTERY_X+5&&r.width==26&&r.height==20){assert(gray==0);++bolt_wells;}
  ui_draw_round_rect(p,r,radius,gray);
 }
 static void epd_fill_rect(EpdRect r,uint8_t gray,uint8_t *p){assert(r.x==0&&r.y==12&&r.width==684&&r.height==56&&gray==0xf0);memset(p+12*342,0xff,56*342);++header_clears;}
 void ui_nav_status(uint8_t *fb);
+int64_t ui_nav_clock_minute(void);
 '''
 nav=(root/'main/ui/ui_nav.c').read_text()
 unit+=r'''
@@ -62,7 +70,7 @@ static bool ui_font_has_text(const char *text){(void)text;return true;}
 static int ui_font_text_width_px(int px,const char *text){return ui_text_fixed_width_px(px,text);}
 '''
 unit+=nav[nav.index('static bool s_status_reading;'):nav.index('static const char *const labels[]')]
-for name,path in [('ui_status_mark_visible' ,'main/ui/ui_kit.c'),('ui_status_visible','main/ui/ui_kit.c'),('ui_clear_page','main/ui/ui_kit.c'),('power_signature','main/ui/ui_nav.c'),('ui_nav_status_area','main/ui/ui_nav.c'),('ui_nav_refresh_power','main/ui/ui_nav.c'),('status_time','main/ui/ui_nav.c'),('clock_text','main/ui/ui_nav.c'),('ui_nav_status','main/ui/ui_nav.c')]:
+for name,path in [('ui_status_mark_visible' ,'main/ui/ui_kit.c'),('ui_status_visible','main/ui/ui_kit.c'),('ui_clear_page','main/ui/ui_kit.c'),('power_signature','main/ui/ui_nav.c'),('ui_nav_status_area','main/ui/ui_nav.c'),('ui_nav_refresh_power','main/ui/ui_nav.c'),('status_time','main/ui/ui_nav.c'),('ui_nav_clock_minute','main/ui/ui_nav.c'),('clock_text','main/ui/ui_nav.c'),('ui_nav_status','main/ui/ui_nav.c')]:
  unit+=function(name,root/path)+'\n'
 unit+=r'''
 int main(void){

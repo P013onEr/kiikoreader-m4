@@ -24,8 +24,47 @@ extern "C" {
 
 // 屏幕逻辑尺寸（竖屏）。布局常量都从这两个数推，换屏只要改这里。
 // Logical screen size (portrait). Layout constants derive from these two; change them for a new panel.
+#if KIIKO_BOARD_MURPHY_M4
+#define UI_LOCK_WIDTH 480
+#define UI_LOCK_HEIGHT 800
+#define UI_MARGIN 24
+#define UI_GAP 8
+#define UI_PAD 12
+#define UI_BTN_H 56
+#define UI_ROW_H 52
+#define UI_ROW_H_SM 46
+#define UI_PX_TITLE 36
+#define UI_PX_SUB 22
+#define UI_PX_SECTION 22
+#define UI_PX_LABEL 26
+#define UI_PX_VALUE 26
+#define UI_PX_LABEL_SM 20
+#define UI_PX_VALUE_SM 22
+#define UI_PX_BODY 24
+#define UI_PX_CAPTION 18
+#define UI_PX_BTN 22
+#define UI_PX_HERO 48
+#else
 #define UI_LOCK_WIDTH 684
 #define UI_LOCK_HEIGHT 1216
+#define UI_MARGIN 40
+#define UI_GAP 12
+#define UI_PAD 16
+#define UI_BTN_H 84
+#define UI_ROW_H 68
+#define UI_ROW_H_SM 58
+#define UI_PX_TITLE 60
+#define UI_PX_SUB 30
+#define UI_PX_SECTION 30
+#define UI_PX_LABEL 40
+#define UI_PX_VALUE 40
+#define UI_PX_LABEL_SM 28
+#define UI_PX_VALUE_SM 34
+#define UI_PX_BODY 38
+#define UI_PX_CAPTION 28
+#define UI_PX_BTN 34
+#define UI_PX_HERO 92
+#endif
 
 // 页内手势及局部定稿阈值，真机调优时同步 INTERACTION.md。
 // Page gesture and region-settling thresholds; update INTERACTION.md when tuning on hardware.
@@ -43,29 +82,12 @@ extern "C" {
 // label/value pair also fits the 604px content width at 40px. Dense pages use
 // the _SM pair in two columns and stay readable via alignment and rules, not a
 // smaller size.
-#define UI_PX_TITLE 60
-#define UI_PX_SUB 30
-#define UI_PX_SECTION 30
-#define UI_PX_LABEL 40
-#define UI_PX_VALUE 40
-#define UI_PX_LABEL_SM 28
-#define UI_PX_VALUE_SM 34
-#define UI_PX_BODY 38
-#define UI_PX_CAPTION 28
 // 底栏三格时每格只有 157px，按钮字号压到 34 才放得下「复位触摸」这种四字标签。
 // A 3-cell bar is 157px per cell; 34px is what fits a four-character label such as 「复位触摸」.
-#define UI_PX_BTN 34
-#define UI_PX_HERO 92
 
 // 全页共用的排版：边距、间距、按钮、键值行。/ Shared page metrics: margins, gaps, buttons, key-value rows.
-#define UI_MARGIN 40
-#define UI_GAP 12
-#define UI_PAD 16
 #define UI_BTN_RADIUS 14
 #define UI_CHIP_RADIUS 8
-#define UI_BTN_H 84
-#define UI_ROW_H 68
-#define UI_ROW_H_SM 58
 #define UI_SECTION_GAP 28
 
 // ui_draw_section() 占掉的高度：标题字号 + 到分隔线的 8 + 线到首行的 10。

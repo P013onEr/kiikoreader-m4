@@ -56,6 +56,7 @@ const char *s = "#endif";
             binary = temp / board
             subprocess.run([cc, '-I', str(ROOT / 'main'),
                             '-DKIIKO_BOARD_METALIO47=' + str(int(board == 'metalio47')),
+                            '-DKIIKO_BOARD_MURPHY_M4=' + str(int(board == 'murphy_m4')),
                             str(source), '-o', str(binary)], check=True)
             assert subprocess.check_output([str(binary)], text=True) == '|'.join(map(str,
                 [board, info['project'], info['image_chip_id'], info['settings_namespace']]))
@@ -64,6 +65,7 @@ const char *s = "#endif";
             # English: Paths inside generated CMake scripts need forward slashes, or a Windows
             # drive path is parsed as an escape sequence.
             source_root = ROOT.as_posix()
+            main_source = 'app_main.cpp' if board == 'murphy_m4' else 'app_main.c'
             script = temp / 'board.cmake'
             script.write_text(f'''set(KIIKO_BOARD "{board}")
 function(component_scope component source)
@@ -72,20 +74,22 @@ function(component_scope component source)
   if(NOT KIIKO_SOURCE_ROOT OR NOT chosen)
     message(FATAL_ERROR "Board scope lost")
   endif()
-  if(component STREQUAL "main" AND NOT chosen MATCHES "/boards/{board}/src/main/app_main.c$")
+  if(component STREQUAL "main" AND NOT chosen MATCHES "/boards/{board}/src/main/{main_source}$")
     message(FATAL_ERROR "Wrong board source selected: ${{chosen}}")
   endif()
 endfunction()
-component_scope("main" "app_main.c")
+component_scope("main" "{main_source}")
 component_scope("components/ble_page_turner" "src/ble_page_turner.c")
-component_scope("main" "app_main.c")
+component_scope("main" "{main_source}")
 ''')
             subprocess.run(['cmake', '-P', str(script)], check=True)
-            wrong_target = metadata('metalio47' if board == 'pico' else 'pico')['idf_target']
-            result = subprocess.run(['cmake', '-S', str(ROOT), '-B', str(temp / (board + '-wrong-target')),
-                                     '-DKIIKO_BOARD=' + board, '-DIDF_TARGET=' + wrong_target],
-                                    capture_output=True, text=True)
-            assert result.returncode and f"{board} requires {info['idf_target']}" in result.stderr
+            wrong_board = 'metalio47' if info['idf_target'] == 'esp32s3' else 'pico'
+            wrong_target = metadata(wrong_board)['idf_target']
+            if wrong_target != info['idf_target']:
+                result = subprocess.run(['cmake', '-S', str(ROOT), '-B', str(temp / (board + '-wrong-target')),
+                                         '-DKIIKO_BOARD=' + board, '-DIDF_TARGET=' + wrong_target],
+                                        capture_output=True, text=True)
+                assert result.returncode and f"{board} requires {info['idf_target']}" in result.stderr
         script.write_text(f'set(KIIKO_BOARD invalid)\ninclude("{ROOT.as_posix()}/cmake/board.cmake")\n')
         result = subprocess.run(['cmake', '-P', str(script)], capture_output=True, text=True)
         assert result.returncode and 'Unknown KIIKO_BOARD' in result.stderr
@@ -128,7 +132,7 @@ def local_experiment_flags():
         sdk=Path(directory)
         (sdk/'tools').mkdir();(sdk/'tools/idf.py').write_text('')
         for board in BOARDS:
-            (sdk/'components/soc'/metadata(board)['idf_target']).mkdir(parents=True)
+            (sdk/'components/soc'/metadata(board)['idf_target']).mkdir(parents=True, exist_ok=True)
             base=[sys.executable,str(ROOT/'tools/build_firmware.py'),'--board',board,
                   '--idf-'+board,str(sdk),'--dry-run']
             plan=json.loads(subprocess.check_output(base,text=True))
@@ -196,10 +200,19 @@ def real_build_tests(work):
                 assert len(data) == part['size']
                 assert hashlib.sha256(data).hexdigest() == part['sha256']
             assert ('--no-stub' in (package / 'flash-command.txt').read_text()) == (board == 'metalio47')
+            if board == 'murphy_m4':
+                app1 = (package / 'app1-flash-command.txt').read_text()
+                assert '0x6e0000 firmware.bin' in app1
+                assert 'bootloader.bin' not in app1 and 'partitions.bin' not in app1
+                assert 'ota_data_initial.bin' not in app1
+                assert result['fixed_app_update'] == {
+                    'partition': 'ota_1', 'offset': 0x6e0000, 'size': 0x6d0000}
             archive = package.parent / f"kiikoread-{board}-{info['version']}-USB.zip"
             with zipfile.ZipFile(archive) as zipped:
                 assert json.loads(zipped.read('verification.json')) == json.loads(json.dumps(result))
                 assert zipped.read('firmware.bin') == image
+                if board == 'murphy_m4':
+                    assert b'0x6e0000 firmware.bin' in zipped.read('app1-flash-command.txt')
             # Corrupt an SDK flash plan: no bundle may be exported with a foreign boot offset.
             fake = Path(directory) / 'bad-build'
             fake.mkdir()

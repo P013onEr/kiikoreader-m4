@@ -61,7 +61,7 @@ int main(int argc,char **argv){
  available=8u*1024u*1024u;error=ESP_ERR_NO_MEM;assert(book_cover_load_list_gray(path,"title","author",out,true,&pending,&w,&h));assert(stat(cache,&(struct stat){0})!=0);
  error=ESP_OK;decode_fail=true;assert(book_cover_load_list_gray(path,"title","author",out,true,&pending,&w,&h));assert(stat(cache,&(struct stat){0})!=0);
  decode_fail=false;assert(book_cover_load_list_gray(path,"title","author",out,true,&pending,&w,&h));assert(!remove(cache));
- error=ESP_ERR_NOT_FOUND;assert(book_cover_load_list_gray(path,"title","author",out,true,&pending,&w,&h)&&w==176&&h==240);assert(book_cover_load_list_gray(path,"title","author",out,false,&pending,&w,&h));
+ error=ESP_ERR_NOT_FOUND;assert(book_cover_load_list_gray(path,"title","author",out,true,&pending,&w,&h)&&w==176&&h==240);assert(!book_cover_load_list_gray(path,"title","author",out,false,&pending,&w,&h)&&pending);
  for(unsigned i=176*240;i<sizeof(out);++i)assert(out[i]==0xab);
  puts("PASS: uncropped wide/tall/square covers, exact cache dimensions, 30 warm reads, corrupt metadata, 1.5MiB reserve, OOM/decode failure retry and generated fallback bounds");
 }

@@ -4,6 +4,7 @@
  */
 #include "file_search.h"
 #include "read_pico_search.h"
+#include "storage_scan_filter.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -61,7 +62,7 @@ void file_search_step(file_search_t *s,unsigned entries){
         unsigned level=s->depth-1;errno=0;struct dirent *entry=readdir(s->stack[level].dir);
         if(!entry){if(errno)++s->stats.errors;closedir(s->stack[level].dir);--s->depth;continue;}
         ++read;
-        if(!strcmp(entry->d_name,".")||!strcmp(entry->d_name,"..")||!strncmp(entry->d_name,"._",2))continue;
+        if(storage_name_is_os_metadata(entry->d_name))continue;
         char path[SEARCH_PATH];int n=snprintf(path,sizeof(path),"%s/%s",s->stack[level].path,entry->d_name);
         if(n<0||(size_t)n>=sizeof(path)){++s->stats.errors;continue;}
         struct stat info;
@@ -73,6 +74,7 @@ void file_search_step(file_search_t *s,unsigned entries){
         if(error){++s->stats.errors;continue;}
         bool directory=S_ISDIR(info.st_mode);
         if(!directory&&!S_ISREG(info.st_mode))continue;
+        if(directory ? storage_name_is_os_directory(entry->d_name) : storage_file_is_temporary(entry->d_name))continue;
         ++s->stats.visited;
         if(!s->query[0]||read_pico_search_match(entry->d_name,s->query)){++s->stats.matched;s->match(path,&info,s->ctx);}
         if(!directory)continue;

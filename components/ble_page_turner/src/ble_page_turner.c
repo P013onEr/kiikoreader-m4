@@ -1804,7 +1804,7 @@ void ble_pt_sync(bool wanted) {
     // can be released.
     if (tries >= BLE_PT_MAX_BOOT_TRIES && have_why) {
         snprintf(s_start_failure, sizeof(s_start_failure),
-                 "启动失败 %u 次：%s（关掉再开启可重试）", (unsigned)tries, why);
+                 "启动失败 %u 次：%.80s（关掉再开启可重试）", (unsigned)tries, why);
         return;
     }
 

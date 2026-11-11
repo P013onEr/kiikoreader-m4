@@ -10,7 +10,11 @@
 #include <stdint.h>
 #include "epdiy.h"
 
+#if KIIKO_BOARD_MURPHY_M4
+#define BOOK_TOC_ROWS 6
+#else
 #define BOOK_TOC_ROWS 7
+#endif
 #define BOOK_TOC_BACK (-2)
 #define BOOK_TOC_PREV (-3)
 #define BOOK_TOC_NEXT (-4)

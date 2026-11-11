@@ -3,8 +3,8 @@
 cmake_minimum_required(VERSION 3.22)
 
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/board.cmake")
-set(KIIKO_BOARD "${KIIKO_BOARD}" CACHE STRING "Firmware device: pico or metalio47")
-set_property(CACHE KIIKO_BOARD PROPERTY STRINGS pico metalio47)
+set(KIIKO_BOARD "${KIIKO_BOARD}" CACHE STRING "Firmware device: pico, metalio47, or murphy_m4")
+set_property(CACHE KIIKO_BOARD PROPERTY STRINGS pico metalio47 murphy_m4)
 if(DEFINED IDF_TARGET AND NOT IDF_TARGET STREQUAL KIIKO_IDF_TARGET)
     message(FATAL_ERROR "${KIIKO_BOARD} requires ${KIIKO_IDF_TARGET}; use a separate build/config directory")
 endif()
@@ -13,6 +13,9 @@ if(DEFINED ENV{IDF_TARGET} AND NOT "$ENV{IDF_TARGET}" STREQUAL "${KIIKO_IDF_TARG
 endif()
 set(IDF_TARGET "${KIIKO_IDF_TARGET}" CACHE STRING "Selected chip")
 set(ENV{KIIKO_BOARD} "${KIIKO_BOARD}")
+if(KIIKO_BOARD_MURPHY_M4)
+    list(APPEND EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/freeink-sdk")
+endif()
 if(NOT DEFINED SDKCONFIG_DEFAULTS)
     set(SDKCONFIG_DEFAULTS "${KIIKO_BOARD_ROOT}/sdkconfig.defaults")
 endif()
@@ -22,6 +25,7 @@ if(METALIO_DU14_EXPERIMENT AND NOT KIIKO_BOARD_METALIO47)
     message(FATAL_ERROR "DU14 experiment requires Metalio S31")
 endif()
 add_compile_definitions(KIIKO_BOARD_METALIO47=${KIIKO_BOARD_METALIO47})
+add_compile_definitions(KIIKO_BOARD_MURPHY_M4=${KIIKO_BOARD_MURPHY_M4})
 # S31 波形回退开关：默认用官方完整48相；置ON可回退到2026-11-01的裁剪37相档做A/B。
 # / S31 waveform rollback switch: vendor full 48 phases by default; ON restores the 2026-11-01
 #   trimmed 37-phase profile for A/B.
@@ -33,6 +37,10 @@ if(METALIO_TRIMMED_WAVEFORM)
     add_compile_definitions(E0470_WAVEFORM_TRIM=1)
 endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+if(KIIKO_BOARD_MURPHY_M4)
+    idf_build_set_property(COMPILE_DEFINITIONS "FREEINK_DEVICE_MURPHY_M4=1" APPEND)
+    idf_build_set_property(CXX_COMPILE_OPTIONS "-std=gnu++2a" APPEND)
+endif()
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 idf_build_set_property(MINIMAL_BUILD ON)
 

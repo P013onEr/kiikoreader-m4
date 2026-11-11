@@ -28,6 +28,8 @@
 static const char* TAG = "book_progress";
 #if KIIKO_BOARD_METALIO47
 static const char* NS = "mt_books";
+#elif KIIKO_BOARD_MURPHY_M4
+static const char* NS = "m4_books";
 #else
 static const char* NS = "rp_books";
 #endif

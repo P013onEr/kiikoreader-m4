@@ -12,10 +12,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#if KIIKO_BOARD_MURPHY_M4
+#include "m4_epdiy_compat/epd_highlevel.h"
+#include "m4_epdiy_compat/epdiy.h"
+#include "m4_epdiy_compat/e0470_page_turn.h"
+#else
 #include "epd_highlevel.h"
 #include "epdiy.h"
 #include "e0470_page_turn.h"
 #include "read_pico_epd_timing.h"
+#endif
 
 
 #ifdef __cplusplus

@@ -13,7 +13,11 @@
 
 #include "epd_highlevel.h"
 #include "esp_err.h"
+#if KIIKO_BOARD_MURPHY_M4
+#include "sc7a20h_lab.h"
+#else
 #include "sc7a20h.h"
+#endif
 #include "cst836u.h"
 #include "settings.h"
 

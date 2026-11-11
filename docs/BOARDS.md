@@ -1,4 +1,8 @@
-# 双板型构建
+# 多板型构建
+
+当前已登记 Pico、Metalio S31 与 Murphy M4。Murphy M4 先以 FreeInk SDK 显示路径作为独立 bring-up 目标，阅读器功能尚未宣称迁移完成。
+
+Murphy M4 的构建标识为 `murphy_m4`，目标为 ESP32-S3 N16R8、SSD1677 800x480；它使用仓库内嵌的 FreeInk SDK 显示 component，暂不发布 OTA。
 
 本仓库的 `main` 同时维护 Pico 与 Metalio S31 源码：共享 `main/` 阅读器和 UI，板级驱动与配置由 `boards/` 选择。正式二进制继续在统一 Release 归档，官网按机型选择。现有文件许可与第三方权利保持。
 
@@ -261,7 +265,7 @@ CI 对两块板各跑一轮构建和宿主测试（`matrix.board: [pico, metalio
 
 ## 交付与验证
 
-打包前校验应用内部芯片 ID、项目名、版本、分区表及两个 OTA 槽的容量，同时校验 bootloader 的芯片 ID 和 SDK 给出的烧录地址。完整 USB 包包含四个镜像、SHA-256、manifest、`flash_args`、`flash-command.txt` 及 `verification.json`；S31 命令保留 `--no-stub`。应用 Bin 只适用于已有正确底包的同板型升级，不能写到地址 0。固件内的升级校验也拒绝另一芯片/项目的应用。
+打包前校验应用内部芯片 ID、项目名、版本、分区表及两个 OTA 槽的容量，同时校验 bootloader 的芯片 ID 和 SDK 给出的烧录地址。完整 USB 包包含四个镜像、SHA-256、manifest、`flash_args`、`flash-command.txt` 及 `verification.json`；S31 命令保留 `--no-stub`。M4 包另提供 `app1-flash-command.txt`，供现有 M4 设备固定更新到 `ota_1`（`0x6e0000`）；该命令只写应用，不触碰 bootloader、分区表、`otadata`、NVS 或 storage。完整初装仍使用 `flash-command.txt`。应用 Bin 只适用于已有正确底包的同板型升级，不能写到地址 0。固件内的升级校验也拒绝另一芯片/项目的应用。
 
 本次整合为本地测试，沿用当前正式版本号区分板型，未覆盖官网、Release 或历史固定版本下载。两套完整构建和主机回归不等同于已在两块实机完成触摸、显示、TF 卡及低功耗验证。
 

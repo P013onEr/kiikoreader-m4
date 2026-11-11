@@ -96,6 +96,7 @@ bool ttf_font_is_builtin(void);
 bool ttf_font_path_is_builtin(const char* path);
 void ttf_font_unload(void);
 int ttf_font_scan(void);
+bool ttf_font_scan_complete(void);
 int ttf_font_count(void);
 const ttf_font_item_t* ttf_font_item(int index);
 const char* ttf_font_path(void);

@@ -203,9 +203,12 @@ static bool stop_upload_if_idle(void);
 static void transfer_header(uint8_t *fb, const char *title, const char *subtitle) {
     ui_nav_status(fb);
     ui_nav_back(fb, 36, 79);
-    ui_text_vc(fb, 342, 107, 34, title, EPD_DRAW_ALIGN_CENTER, false);
-    if (subtitle && subtitle[0]) ui_text(fb, 36, 153, 20, subtitle, EPD_DRAW_ALIGN_LEFT, false);
-    if (subtitle && subtitle[0]) ui_hairline(fb, 190, 36, 612, UI_GRAY_LIGHT);
+    ui_text_vc(fb, UI_LOCK_WIDTH/2, KIIKO_BOARD_MURPHY_M4 ? 80 : 107,
+               KIIKO_BOARD_MURPHY_M4 ? 25 : 34, title, EPD_DRAW_ALIGN_CENTER, false);
+    if (subtitle && subtitle[0]) ui_text(fb, UI_MARGIN, KIIKO_BOARD_MURPHY_M4 ? 116 : 153,
+                                          KIIKO_BOARD_MURPHY_M4 ? 16 : 20, subtitle, EPD_DRAW_ALIGN_LEFT, false);
+    if (subtitle && subtitle[0]) ui_hairline(fb, KIIKO_BOARD_MURPHY_M4 ? 140 : 190,
+                                             UI_MARGIN, ui_content_width(), UI_GRAY_LIGHT);
 }
 
 static int transfer_content_end(void) {
@@ -215,7 +218,8 @@ static int transfer_footer_top(void) {
     return UI_NAV_REFRESH_END-102;
 }
 static EpdRect method_control_rect(int id) {
-    return (EpdRect){36, 224 + id * 112, 612, 112};
+    return (EpdRect){UI_MARGIN, KIIKO_BOARD_MURPHY_M4 ? 180 + id * 82 : 224 + id * 112,
+                     ui_content_width(), KIIKO_BOARD_MURPHY_M4 ? 76 : 112};
 }
 
 // S05：入口只负责选择传输方式，具体服务信息留给下一页。
@@ -224,11 +228,14 @@ static void draw_methods(uint8_t *fb) {
     ui_clear_page(fb);
     ui_fill_rect_fast((EpdRect){0, 0, UI_LOCK_WIDTH, transfer_content_end()}, 0xe0, fb);
     transfer_header(fb, "Wifi/热点传书", NULL);
-    ui_text(fb, 42, 180, 21, "选择方式", EPD_DRAW_ALIGN_LEFT, false);
-    EpdRect card = {36, 224, 612, 224};
+    ui_text(fb, KIIKO_BOARD_MURPHY_M4?24:42, KIIKO_BOARD_MURPHY_M4?154:180,
+            KIIKO_BOARD_MURPHY_M4?17:21, "选择方式", EPD_DRAW_ALIGN_LEFT, false);
+    EpdRect card = {KIIKO_BOARD_MURPHY_M4?24:36, KIIKO_BOARD_MURPHY_M4?180:224,
+                    KIIKO_BOARD_MURPHY_M4?432:612, KIIKO_BOARD_MURPHY_M4?164:224};
     ui_fill_round_rect(fb, card, 24, UI_GRAY_WHITE);
     ui_draw_round_rect(fb, card, 24, 0x60);
-    ui_draw_round_rect(fb, (EpdRect){37, 225, 610, 222}, 23, 0x60);
+    ui_draw_round_rect(fb, (EpdRect){card.x + 1, card.y + 1, card.width - 2, card.height - 2},
+                       KIIKO_BOARD_MURPHY_M4 ? 23 : 23, 0x60);
     static const char *titles[] = {"WiFi传书", "热点传书"};
     static const char *details[] = {
         "与手机或电脑连接同一个无线网络",
@@ -237,20 +244,30 @@ static void draw_methods(uint8_t *fb) {
     for (int i = 0; i < 2; ++i) {
         EpdRect row = method_control_rect(i);
         if (s_pressed == i) ui_draw_pressed_round_rect(fb, row, 0);
-        if (i) ui_fill_rect_fast((EpdRect){68, row.y, 548, 2}, 0x80, fb);
+        if (i) ui_fill_rect_fast((EpdRect){KIIKO_BOARD_MURPHY_M4?42:68, row.y,
+                                           KIIKO_BOARD_MURPHY_M4?396:548, 2}, 0x40, fb);
         int cy = row.y + row.height / 2;
         if (i == 0) ui_nav_wifi_icon(fb, 72, cy, 30, 0x6a);
         else if (i == 1) ui_draw_icon(fb, 72, cy, 48, UI_ICON_RADIO_TOWER, 0x6a);
-        ui_text(fb, 112, row.y + 21, 27, titles[i], EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 112, row.y + 64, 19, details[i], EPD_DRAW_ALIGN_LEFT, false);
-        ui_text_vc(fb, 617, cy, 29, "›", EPD_DRAW_ALIGN_CENTER, false);
+        ui_text(fb, KIIKO_BOARD_MURPHY_M4?84:112, row.y + (KIIKO_BOARD_MURPHY_M4?10:21),
+                KIIKO_BOARD_MURPHY_M4?19:27, titles[i], EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, KIIKO_BOARD_MURPHY_M4?84:112, row.y + (KIIKO_BOARD_MURPHY_M4?40:64),
+                KIIKO_BOARD_MURPHY_M4?14:19, details[i], EPD_DRAW_ALIGN_LEFT, false);
+        ui_text_vc(fb, KIIKO_BOARD_MURPHY_M4?440:617, cy, KIIKO_BOARD_MURPHY_M4?22:29, "›", EPD_DRAW_ALIGN_CENTER, false);
     }
     if (s_method_message[0]) {
-        ui_fill_round_rect(fb, (EpdRect){36, 478, 612, 76}, 20, 0xd8);
-        ui_text_vc(fb, 342, 516, 20, s_method_message, EPD_DRAW_ALIGN_CENTER, false);
+        ui_fill_round_rect(fb, (EpdRect){KIIKO_BOARD_MURPHY_M4?24:36, KIIKO_BOARD_MURPHY_M4?360:478,
+                                         KIIKO_BOARD_MURPHY_M4?432:612, KIIKO_BOARD_MURPHY_M4?58:76}, 14, 0xd8);
+        ui_text_vc(fb, UI_LOCK_WIDTH/2, KIIKO_BOARD_MURPHY_M4?389:516,
+                   KIIKO_BOARD_MURPHY_M4?16:20, s_method_message, EPD_DRAW_ALIGN_CENTER, false);
     }
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text(fb, UI_MARGIN, 430, 17, "浏览器传书支持 EPUB、TXT、字体和图片文件。", EPD_DRAW_ALIGN_LEFT, false);
+    ui_text(fb, UI_MARGIN, 458, 16, "传输完成后，新内容会自动出现在书架或字体列表。", EPD_DRAW_ALIGN_LEFT, false);
+#else
     ui_text(fb, 42, 594, 19, "浏览器传书支持 EPUB、TXT、字体和图片文件。", EPD_DRAW_ALIGN_LEFT, false);
     ui_text(fb, 42, 634, 18, "传输完成后，新内容会自动出现在书架或字体列表。", EPD_DRAW_ALIGN_LEFT, false);
+#endif
     transfer_navigation(fb,2);
 }
 
@@ -272,23 +289,36 @@ static void clear_password(void) {
 }
 
 static EpdRect network_control_rect(int id) {
-    if (id >= 0 && id < NETWORK_ROWS) return (EpdRect){36, 465 + id * 95, 612, 95};
-    if (id == 6) return (EpdRect){501, 244, 123, 56};
+    if (id >= 0 && id < NETWORK_ROWS) return (EpdRect){KIIKO_BOARD_MURPHY_M4?24:36, KIIKO_BOARD_MURPHY_M4?350 + id * 54:465 + id * 95, KIIKO_BOARD_MURPHY_M4?432:612, KIIKO_BOARD_MURPHY_M4?52:95};
+    if (id == 6) return (EpdRect){KIIKO_BOARD_MURPHY_M4?324:501, KIIKO_BOARD_MURPHY_M4?184:244, KIIKO_BOARD_MURPHY_M4?132:123, KIIKO_BOARD_MURPHY_M4?48:56};
+#if KIIKO_BOARD_MURPHY_M4
+    if (id == 11) return s_forget_confirm ? (EpdRect){24,484,204,52} : (EpdRect){324,238,132,38};
+    if (id == 12) return (EpdRect){252,484,204,52};
+#else
     if (id == 11) return s_forget_confirm ? ui_row_rect(0, 2, 600, UI_BTN_H) : (EpdRect){501, 315, 123, 52};
     if (id == 12) return ui_row_rect(1, 2, 600, UI_BTN_H);
+#endif
     bool paged = s_network_count > NETWORK_ROWS;
-    if (id == 7) return paged ? (EpdRect){36, transfer_footer_top()-103, 64, 66} : (EpdRect){0};
-    if (id == 8) return paged ? (EpdRect){112, transfer_footer_top()-103, 460, 66} : (EpdRect){36, transfer_footer_top()-103, 612, 66};
-    if (id == 9) return paged ? (EpdRect){584, transfer_footer_top()-103, 64, 66} : (EpdRect){0};
+    if (id == 7) return paged ? (EpdRect){KIIKO_BOARD_MURPHY_M4?24:36, KIIKO_BOARD_MURPHY_M4?574:transfer_footer_top()-103, KIIKO_BOARD_MURPHY_M4?56:64, KIIKO_BOARD_MURPHY_M4?44:66} : (EpdRect){0};
+    if (id == 8) return paged ? (EpdRect){KIIKO_BOARD_MURPHY_M4?92:112, KIIKO_BOARD_MURPHY_M4?574:transfer_footer_top()-103, KIIKO_BOARD_MURPHY_M4?296:460, KIIKO_BOARD_MURPHY_M4?44:66} : (EpdRect){KIIKO_BOARD_MURPHY_M4?24:36, KIIKO_BOARD_MURPHY_M4?574:transfer_footer_top()-103, KIIKO_BOARD_MURPHY_M4?432:612, KIIKO_BOARD_MURPHY_M4?44:66};
+    if (id == 9) return paged ? (EpdRect){KIIKO_BOARD_MURPHY_M4?400:584, KIIKO_BOARD_MURPHY_M4?574:transfer_footer_top()-103, KIIKO_BOARD_MURPHY_M4?56:64, KIIKO_BOARD_MURPHY_M4?44:66} : (EpdRect){0};
     return (EpdRect){0};
 }
 
 static EpdRect password_control_rect(int id) {
+#if KIIKO_BOARD_MURPHY_M4
+    if (id == 44) return (EpdRect){24, 318, 126, 48};
+    if (id == 45) return (EpdRect){158, 318, 126, 48};
+    if (id == 46) return (EpdRect){292, 318, 164, 48};
+    if (id == 47) return (EpdRect){24, 220, 432, 62};
+    return (EpdRect){0};
+#else
     if (id == 44) return (EpdRect){36, 434, 278, 68};
     if (id == 45) return (EpdRect){500, 215, 148, 58};
     if (id == 46) return (EpdRect){330, 434, 318, 68};
     if (id == 47) return (EpdRect){UI_MARGIN, 288, ui_content_width(), 86};
     return (EpdRect){0};
+#endif
 }
 
 static void provisioning_button(uint8_t* fb, EpdRect rect, const char* text, int id) {
@@ -305,7 +335,8 @@ static void network_button(uint8_t *fb, int id, const char *label, bool dark) {
     EpdRect rect = network_control_rect(id);
     ui_fill_round_rect(fb, rect, 16, s_pressed == id ? 0xb0 : dark ? UI_GRAY_BLACK : UI_GRAY_WHITE);
     if (!dark) network_border(fb, rect, 16);
-    ui_text_vc(fb, rect.x + rect.width / 2, rect.y + rect.height / 2, 24, label,
+    ui_text_vc(fb, rect.x + rect.width / 2, rect.y + rect.height / 2,
+               KIIKO_BOARD_MURPHY_M4 ? 18 : 24, label,
                EPD_DRAW_ALIGN_CENTER, dark && s_pressed != id);
 }
 
@@ -325,43 +356,87 @@ static void draw_networks(uint8_t* fb) {
         return;
     }
     transfer_header(fb, "无线网络", NULL);
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text(fb, UI_MARGIN, 154, 17, "当前网络", EPD_DRAW_ALIGN_LEFT, false);
+    EpdRect current = {UI_MARGIN, 176, ui_content_width(), 126};
+#else
     ui_text(fb, 42, 182, 24, "当前网络", EPD_DRAW_ALIGN_LEFT, false);
     EpdRect current = {36, 224, 612, 154};
+#endif
     ui_fill_round_rect(fb, current, 22, UI_GRAY_WHITE);
     network_border(fb, current, 22);
     if (s_saved_configured) {
+#if KIIKO_BOARD_MURPHY_M4
+        char saved[40]; snprintf(saved, sizeof(saved), "%s", s_saved_ssid); fit_label(saved, 18, 230);
+        ui_nav_wifi_icon(fb, 48, 202, 20, UI_GRAY_BLACK);
+        ui_text(fb, 68, 188, 18, saved, EPD_DRAW_ALIGN_LEFT, false);
+#else
         char saved[40]; snprintf(saved, sizeof(saved), "%s", s_saved_ssid); fit_label(saved, 29, 375);
         ui_nav_wifi_icon(fb, 74, 265, 28, UI_GRAY_BLACK);
         ui_text(fb, 104, 243, 29, saved, EPD_DRAW_ALIGN_LEFT, false);
+#endif
         const char *state = s_status.network_ready ? "已连接" :
             s_network_connect_pending || s_status.state == READ_PICO_TRANSFER_STARTING ? "正在连接…" : "已保存 · 尚未连接";
+#if KIIKO_BOARD_MURPHY_M4
+        ui_text(fb, 68, 220, 16, state, EPD_DRAW_ALIGN_LEFT, false);
+#else
         ui_text(fb, 64, 297, 23, state, EPD_DRAW_ALIGN_LEFT, false);
+#endif
         char address[80];
         const char *url = !strncmp(s_status.url, "http://", 7) ? s_status.url + 7 : s_status.url;
         snprintf(address, sizeof(address), "%.79s", s_status.network_ready ? url[0] ? url : "已连接，可传书和对时" : "连接后可传书和对时");
+#if KIIKO_BOARD_MURPHY_M4
+        fit_label(address, 14, 236);
+        ui_text(fb, 68, 250, 14, address, EPD_DRAW_ALIGN_LEFT, false);
+#else
         fit_label(address, 21, 419);
         ui_text(fb, 64, 336, 21, address, EPD_DRAW_ALIGN_LEFT, false);
+#endif
         network_button(fb, 6, s_status.network_ready ? "断开" : "连接", !s_status.network_ready);
         if (s_pressed == 11) ui_draw_pressed_round_rect(fb, network_control_rect(11), 14);
+#if KIIKO_BOARD_MURPHY_M4
+        ui_text_vc(fb, 388, 280, 14, "遗忘网络", EPD_DRAW_ALIGN_CENTER, false);
+#else
         ui_text_vc(fb, 563, 341, 21, "遗忘网络", EPD_DRAW_ALIGN_CENTER, false);
+#endif
     } else {
+#if KIIKO_BOARD_MURPHY_M4
+        ui_text(fb, 44, 198, 18, "尚未保存网络", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 44, 232, 15, "请从下方列表选择 2.4 GHz WiFi", EPD_DRAW_ALIGN_LEFT, false);
+#else
         ui_text(fb, 64, 253, 29, "尚未保存网络", EPD_DRAW_ALIGN_LEFT, false);
         ui_text(fb, 64, 312, 23, "请从下方列表选择 2.4 GHz WiFi", EPD_DRAW_ALIGN_LEFT, false);
+#endif
     }
     char count[64];
     snprintf(count, sizeof(count), "%u 个 · %u/%u 页", (unsigned)s_network_count,
              (unsigned)s_network_page + 1, (unsigned)(s_network_count ? (s_network_count + NETWORK_ROWS - 1) / NETWORK_ROWS : 1));
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text(fb, UI_MARGIN, 316, 17, "附近网络", EPD_DRAW_ALIGN_LEFT, false);
+    ui_text(fb, UI_LOCK_WIDTH-UI_MARGIN, 316, 14, count, EPD_DRAW_ALIGN_RIGHT, false);
+    EpdRect list = {UI_MARGIN, 344, ui_content_width(), 226};
+#else
     ui_text(fb, 42, 418, 24, "附近网络", EPD_DRAW_ALIGN_LEFT, false);
     ui_text(fb, 642, 420, 21, count, EPD_DRAW_ALIGN_RIGHT, false);
     EpdRect list = {36, 465, 612, 380};
+#endif
     ui_fill_round_rect(fb, list, 22, UI_GRAY_WHITE);
     if (s_scan_pending) {
+#if KIIKO_BOARD_MURPHY_M4
+        ui_text_vc(fb, UI_LOCK_WIDTH/2, 455, 18, "正在扫描 2.4 GHz WiFi", EPD_DRAW_ALIGN_CENTER, false);
+#else
         ui_text_vc(fb, 342, 655, 25, "正在扫描 2.4 GHz WiFi", EPD_DRAW_ALIGN_CENTER, false);
+#endif
     } else if (!s_network_count) {
+#if KIIKO_BOARD_MURPHY_M4
+        ui_text_vc(fb, UI_LOCK_WIDTH/2, 430, 18, s_scan_error == ESP_OK ? "没有发现可用网络" : "扫描没有完成", EPD_DRAW_ALIGN_CENTER, false);
+        ui_text_vc(fb, UI_LOCK_WIDTH/2, 468, 14, s_scan_error == ESP_OK ? "请靠近路由器后重新扫描" : "点下方按钮自动重试", EPD_DRAW_ALIGN_CENTER, false);
+#else
         ui_text_vc(fb, 342, 620, 27, s_scan_error == ESP_OK ? "没有发现可用网络" : "扫描没有完成",
                    EPD_DRAW_ALIGN_CENTER, false);
         ui_text_vc(fb, 342, 678, 22, s_scan_error == ESP_OK ? "请靠近路由器后重新扫描" : "点下方按钮自动重试",
                    EPD_DRAW_ALIGN_CENTER, false);
+#endif
     }
     for (int row = 0; !s_scan_pending && row < NETWORK_ROWS; ++row) {
         size_t index = s_network_page * NETWORK_ROWS + row;
@@ -369,15 +444,26 @@ static void draw_networks(uint8_t* fb) {
         const read_pico_transfer_network_t* network = &s_networks[index];
         EpdRect rect = network_control_rect(row);
         if (s_pressed == row) ui_draw_pressed_round_rect(fb, rect, 0);
-        if (row) ui_fill_rect_fast((EpdRect){64, rect.y, 556, 2}, 0x70, fb);
+        if (row) ui_fill_rect_fast(KIIKO_BOARD_MURPHY_M4
+            ? (EpdRect){36, rect.y, 408, 2} : (EpdRect){64, rect.y, 556, 2}, 0x70, fb);
         char name[33], detail[64];
         snprintf(name, sizeof(name), "%s", network->ssid);
+#if KIIKO_BOARD_MURPHY_M4
+        fit_label(name, 17, 332);
+        ui_text(fb, 42, rect.y + 7, 17, name, EPD_DRAW_ALIGN_LEFT, false);
+#else
         fit_label(name, 28, 520);
         ui_text(fb, 64, rect.y + 16, 28, name, EPD_DRAW_ALIGN_LEFT, false);
+#endif
         snprintf(detail, sizeof(detail), "%s · %s", network->rssi > -60 ? "信号强" : network->rssi > -75 ? "信号良好" : "信号一般",
                  !network->supported ? "暂不支持" : network->saved ? (network->requires_password ? "已保存密码 · 可直连" : "已保存 · 可直连") : network->requires_password ? "需要密码" : "开放网络");
+#if KIIKO_BOARD_MURPHY_M4
+        ui_text(fb, 42, rect.y + 31, 13, detail, EPD_DRAW_ALIGN_LEFT, false);
+        ui_text_vc(fb, 438, rect.y + rect.height/2, 19, "›", EPD_DRAW_ALIGN_CENTER, false);
+#else
         ui_text(fb, 64, rect.y + 59, 21, detail, EPD_DRAW_ALIGN_LEFT, false);
         ui_text_vc(fb, 615, rect.y + 47, 27, "›", EPD_DRAW_ALIGN_CENTER, false);
+#endif
     }
     network_border(fb, list, 22);
     if (s_network_count > NETWORK_ROWS) {
@@ -385,13 +471,23 @@ static void draw_networks(uint8_t* fb) {
         network_button(fb, 9, "›", false);
     }
     network_button(fb, 8, s_scan_error == ESP_OK ? "重新扫描" : "重试扫描", false);
+#if KIIKO_BOARD_MURPHY_M4
+    if (s_network_count <= NETWORK_ROWS) ui_draw_icon(fb, 424, 602, 24, UI_ICON_ROTATE_CW, UI_GRAY_BLACK);
+    ui_text(fb, UI_MARGIN, 644, 14, "支持 2.4 GHz WiFi（信道 1–13）", EPD_DRAW_ALIGN_LEFT, false);
+#else
     if (s_network_count <= NETWORK_ROWS) ui_draw_icon(fb, 597, 906, 32, UI_ICON_ROTATE_CW, UI_GRAY_BLACK);
     ui_text(fb, 42, 976, 21, "支持 2.4 GHz WiFi（信道 1–13）", EPD_DRAW_ALIGN_LEFT, false);
+#endif
     char message[96];
     snprintf(message, sizeof(message), "%s", s_network_message[0] ? s_network_message :
              s_status.network_ready ? "退出此页后，WiFi 仍保持连接。" : "连接后，可退出此页继续使用。");
+#if KIIKO_BOARD_MURPHY_M4
+    fit_label(message, 14, ui_content_width());
+    ui_text(fb, UI_MARGIN, transfer_footer_top()+28, 14, message, EPD_DRAW_ALIGN_LEFT, false);
+#else
     fit_label(message, 21, 600);
     ui_text(fb, 42, transfer_footer_top()+38, 21, message, EPD_DRAW_ALIGN_LEFT, false);
+#endif
     transfer_navigation(fb,3);
 }
 
@@ -401,14 +497,17 @@ static void draw_password(uint8_t* fb) {
     char name[33];
     snprintf(name, sizeof(name), "%s", s_selected.ssid);
     fit_label(name, UI_PX_BODY, ui_content_width());
-    ui_text(fb, UI_MARGIN, 176, UI_PX_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text(fb, UI_MARGIN, KIIKO_BOARD_MURPHY_M4 ? 156 : 176,
+            KIIKO_BOARD_MURPHY_M4 ? 21 : UI_PX_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
     char caption[80];
     size_t len = strlen(s_password);
     snprintf(caption, sizeof(caption), "%s · %u/%u", s_selected.requires_password ? "密码" : "开放网络，无需密码", (unsigned)len, PASSWORD_MAX);
-    ui_text_fixed_vc(fb, UI_MARGIN, 240, 22, caption, EPD_DRAW_ALIGN_LEFT, false);
-    ui_text_input_draw(fb, &s_password_input, password_control_rect(47), UI_PX_BODY,
+    ui_text_fixed_vc(fb, UI_MARGIN, KIIKO_BOARD_MURPHY_M4 ? 194 : 240,
+                     KIIKO_BOARD_MURPHY_M4 ? 18 : 22, caption, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_input_draw(fb, &s_password_input, password_control_rect(47), KIIKO_BOARD_MURPHY_M4 ? 22 : UI_PX_BODY,
                        !s_password_visible, NULL);
-    ui_text_fixed_vc(fb, 36, 399, 22, s_network_message[0] ? s_network_message : "支持英文、数字、符号和空格", EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_fixed_vc(fb, UI_MARGIN, KIIKO_BOARD_MURPHY_M4 ? 294 : 399,
+                     KIIKO_BOARD_MURPHY_M4 ? 17 : 22, s_network_message[0] ? s_network_message : "支持英文、数字、符号和空格", EPD_DRAW_ALIGN_LEFT, false);
     provisioning_button(fb, password_control_rect(44), "取消", 44);
     provisioning_button(fb, password_control_rect(45), s_password_visible ? "隐藏" : "显示密码", 45);
     provisioning_button(fb, password_control_rect(46), "连接并保存", 46);
@@ -696,7 +795,13 @@ static app_redraw_t provisioning_gesture(app_ctx_t* ctx, const ui_gesture_event_
     return APP_REDRAW_AREA;
 }
 
-static EpdRect status_rect(void) { return (EpdRect){36, 676, 612, 270}; }
+static EpdRect status_rect(void) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){24,510,432,122};
+#else
+    return (EpdRect){36,676,612,270};
+#endif
+}
 #if KIIKO_BOARD_METALIO47
 // Only the live text and bar; exclude the card border, capacity and controls.
 static EpdRect progress_rect(void) {
@@ -718,7 +823,11 @@ static void draw_status(uint8_t* fb) {
     else if (s_status.state == READ_PICO_TRANSFER_ERROR) state = s_status.network_ready ? "上传失败，请重试" :
         s_mode == READ_PICO_TRANSFER_MODE_AP ? "热点传书未启动" : "WiFi 传书未启动";
     if (s_media_lost) state = "存储已移除，传书已停止";
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text(fb, area.x + 20, area.y + 20, 18, state, EPD_DRAW_ALIGN_LEFT, false);
+#else
     ui_text(fb, area.x + 28, area.y + 24, 26, state, EPD_DRAW_ALIGN_LEFT, false);
+#endif
     char line[256];
     if (s_media_lost) snprintf(line, sizeof(line), "重新进入传书可使用内置存储");
     else if (s_status.state == READ_PICO_TRANSFER_ERROR && !s_status.network_ready)
@@ -726,17 +835,32 @@ static void draw_status(uint8_t* fb) {
     else if (s_mode == READ_PICO_TRANSFER_MODE_AP)
         snprintf(line, sizeof(line), "已连接 %u 台 · 已完成 %u 本", s_status.sta_count, s_status.done_count);
     else snprintf(line, sizeof(line), "同网浏览器上传 · 已完成 %u 本", s_status.done_count);
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text(fb, area.x + 20, area.y + 48, 14, line, EPD_DRAW_ALIGN_LEFT, false);
+#else
     ui_text(fb, area.x + 28, area.y + 68, 19, line, EPD_DRAW_ALIGN_LEFT, false);
+#endif
     snprintf(line, sizeof(line), "%s", s_status.cur_name);
-    while (*line && ttf_text_width_px(ui_text_effective_px(19), line) > area.width - 280) {
+    while (*line && ttf_text_width_px(ui_text_effective_px(KIIKO_BOARD_MURPHY_M4 ? 14 : 19), line) > area.width - (KIIKO_BOARD_MURPHY_M4 ? 40 : 280)) {
         size_t n = strlen(line) - 1;
         while (n && ((unsigned char)line[n] & 0xc0) == 0x80) --n;
         line[n] = 0;
     }
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text(fb, area.x + 20, area.y + 76, 14, line[0] ? line : "尚无正在传输的文件", EPD_DRAW_ALIGN_LEFT, false);
+#else
     ui_text(fb, area.x + 28, area.y + 108, 19, line[0] ? line : "尚无正在传输的文件", EPD_DRAW_ALIGN_LEFT, false);
+#endif
     snprintf(line, sizeof(line), "%.1f / %.1f MB", s_status.cur_bytes / 1048576.0, s_status.cur_total / 1048576.0);
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text(fb, area.x + area.width - 20, area.y + 76, 14, line, EPD_DRAW_ALIGN_RIGHT, false);
+#else
     ui_text(fb, area.x + area.width - 28, area.y + 108, 19, line, EPD_DRAW_ALIGN_RIGHT, false);
+#endif
     EpdRect track = {area.x + 28, area.y + 150, area.width - 56, 10};
+#if KIIKO_BOARD_MURPHY_M4
+    track = (EpdRect){area.x + 20, area.y + 98, area.width - 40, 8};
+#endif
     ui_fill_round_rect(fb, track, 5, 0xc8);
     if (s_status.cur_total) {
         uint64_t width = (uint64_t)s_status.cur_bytes * track.width / s_status.cur_total;
@@ -747,18 +871,67 @@ static void draw_status(uint8_t* fb) {
     if (s_media_lost) snprintf(capacity, sizeof(capacity), "TF 卡已移除，原存储已停用");
     else snprintf(capacity, sizeof(capacity), "%s · 剩余 %.1f MB%s", s_root.is_flash ? "内置" : "TF 卡",
                   s_free / 1048576.0, s_root.is_flash ? " · 单文件 ≤ 1 MB" : "");
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text(fb, area.x + 20, area.y + 116, 12, capacity, EPD_DRAW_ALIGN_LEFT, false);
+#else
     ui_text(fb, area.x + 28, area.y + 190, 18, capacity, EPD_DRAW_ALIGN_LEFT, false);
     ui_text(fb, area.x + 28, area.y + 228, 18,
             s_status.last_error != ESP_OK ? "传输未完成，请检查网络后重试" : "同名文件会覆盖；完成后自动更新书架",
             EPD_DRAW_ALIGN_LEFT, false);
+#endif
 }
 
 static EpdRect control_rect(int id) {
+#if KIIKO_BOARD_MURPHY_M4
+    if(id==0)return(EpdRect){24,448,210,48};
+    if(id==1)return(EpdRect){246,448,210,48};
+    if(id==2)return(EpdRect){24,646,432,64};
+    return(EpdRect){0};
+#else
     if (id == 0) return (EpdRect){36, 608, 296, 56};
     if (id == 1) return (EpdRect){352, 608, 296, 56};
     if (id == 2) return (EpdRect){36, transfer_footer_top(), 612, 76};
     return (EpdRect){0};
+#endif
 }
+
+#if KIIKO_BOARD_MURPHY_M4
+static void draw_transfer_home_m4(uint8_t *fb) {
+    ui_clear_page(fb);
+    transfer_header(fb, s_mode == READ_PICO_TRANSFER_MODE_AP ? "热点传书" : "WiFi 传书", NULL);
+    EpdRect connection = {24, 154, 432, 94};
+    ui_fill_round_rect(fb, connection, 16, UI_GRAY_WHITE);
+    ui_draw_round_rect(fb, connection, 16, 0x40);
+    char name[64];
+    snprintf(name, sizeof(name), "%s", s_mode == READ_PICO_TRANSFER_MODE_AP ? s_status.ssid : s_status.wifi_ssid);
+    if (!name[0]) snprintf(name, sizeof(name), "%s", s_mode == READ_PICO_TRANSFER_MODE_AP ? "kiikoread 热点" : "已保存的 WiFi");
+    fit_label(name, 17, 330);
+    ui_text(fb, 44, 176, 17, name, EPD_DRAW_ALIGN_LEFT, false);
+    const char *state = s_mode == READ_PICO_TRANSFER_MODE_AP ?
+        (s_status.network_ready ? "热点已开启" : s_start_pending ? "正在启动热点…" : "等待热点启动") :
+        (s_status.network_ready ? "设备已连接；手机需同网" : s_start_pending || s_status.state == READ_PICO_TRANSFER_STARTING ? "正在连接已保存网络…" : s_status.wifi_configured ? "已保存，尚未连接" : "尚未选择 WiFi");
+    ui_text(fb, 44, 210, 14, state, EPD_DRAW_ALIGN_LEFT, false);
+    if (s_status.network_ready && s_qr_ready)
+        ui_wifi_qr_draw(fb, (EpdRect){150, 264, 180, 180});
+    else {
+        ui_draw_round_rect(fb, (EpdRect){150, 264, 180, 180}, 8, 0x80);
+        ui_text_vc(fb, 240, 354, 15, s_start_pending ? "正在生成二维码…" : "等待网络地址…", EPD_DRAW_ALIGN_CENTER, false);
+    }
+    if (s_status.network_ready) {
+        int px = 15;
+        while (px > 11 && ttf_text_width_px(px, s_status.url) > 424) --px;
+        ui_text_vc(fb, 240, 466, px, s_status.url, EPD_DRAW_ALIGN_CENTER, false);
+    } else ui_text_vc(fb, 240, 466, 14, "网络就绪后显示浏览器地址", EPD_DRAW_ALIGN_CENTER, false);
+    if (s_mode == READ_PICO_TRANSFER_MODE_AP) {
+        for (int i = 0; i < 2; ++i) {
+            EpdRect tab = control_rect(i);
+            ui_draw_button(fb, tab, i ? "打开传书网页" : "热点信息", s_qr_url == (i == 1));
+        }
+    } else ui_text_vc(fb, 240, 486, 13, "手机或电脑扫码后，在浏览器上传内容", EPD_DRAW_ALIGN_CENTER, false);
+    draw_status(fb);
+    transfer_navigation(fb, 2);
+}
+#endif
 
 static void render_content(app_ctx_t* ctx, uint8_t* fb) {
     (void)ctx;
@@ -766,6 +939,24 @@ static void render_content(app_ctx_t* ctx, uint8_t* fb) {
         ui_clear_page(fb);
         bool active = usb_storage_active();
         transfer_header(fb, "USB 读卡", NULL);
+#if KIIKO_BOARD_MURPHY_M4
+        ui_text(fb, 24, 154, 17, "连接状态", EPD_DRAW_ALIGN_LEFT, false);
+        EpdRect status = {24, 180, 432, 104};
+        ui_fill_round_rect(fb, status, 16, UI_GRAY_WHITE);
+        ui_draw_round_rect(fb, status, 16, 0x40);
+        const char *state = s_usb_start_pending ? "正在准备 TF 卡" : !active ? "USB 读卡未开启" : s_usb_host_connected ? "电脑已连接" : "等待电脑连接";
+        ui_text(fb, 44, 204, 18, state, EPD_DRAW_ALIGN_LEFT, false);
+        if (active) { char size[48]; snprintf(size, sizeof(size), "SD_CARD · %.1f GB", s_usb_capacity_bytes / 1073741824.0); ui_text(fb, 44, 240, 15, size, EPD_DRAW_ALIGN_LEFT, false); }
+        else { char message[96]; snprintf(message, sizeof(message), "%s", s_usb_message); fit_label(message, 14, 380); ui_text(fb, 44, 240, 14, message, EPD_DRAW_ALIGN_LEFT, false); }
+        ui_text(fb, 24, 308, 17, "文件存放位置", EPD_DRAW_ALIGN_LEFT, false);
+        EpdRect files = {24, 334, 432, 142}; ui_fill_round_rect(fb, files, 16, UI_GRAY_WHITE); ui_draw_round_rect(fb, files, 16, 0x60);
+        ui_text(fb, 44, 360, 19, "books", EPD_DRAW_ALIGN_LEFT, false); ui_text(fb, 44, 388, 14, "EPUB、TXT 书籍", EPD_DRAW_ALIGN_LEFT, false);
+        ui_hairline(fb, 404, 44, 392, 0x00);
+        ui_text(fb, 44, 426, 19, "fonts", EPD_DRAW_ALIGN_LEFT, false); ui_text(fb, 44, 454, 14, "TTF、OTF 字体", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text_box(fb, (EpdRect){24, 500, 432, 64}, 14, "电脑复制完成后，先在电脑端弹出磁盘，再结束 USB 读卡。", EPD_DRAW_ALIGN_LEFT, false);
+        ui_draw_button(fb, control_rect(2), active ? "结束 USB 读卡" : "返回文件管理", true);
+        return;
+#else
         ui_text(fb, 42, 181, 20, "连接状态", EPD_DRAW_ALIGN_LEFT, false);
         EpdRect status = {36, 211, 612, 190};
         ui_fill_round_rect(fb, status, 24, UI_GRAY_WHITE);
@@ -797,10 +988,14 @@ static void render_content(app_ctx_t* ctx, uint8_t* fb) {
         ui_text_vc(fb, 342, transfer_footer_top()+38, 24, active ? "结束 USB 读卡" : "返回文件管理",
                    EPD_DRAW_ALIGN_CENTER, true);
         return;
+#endif
     }
     if (s_view == TRANSFER_METHODS) { draw_methods(fb); return; }
     if (s_view == TRANSFER_NETWORKS) { draw_networks(fb); return; }
     if (s_view == TRANSFER_PASSWORD) { draw_password(fb); return; }
+#if KIIKO_BOARD_MURPHY_M4
+    if (s_view == TRANSFER_HOME) { draw_transfer_home_m4(fb); return; }
+#endif
     ui_clear_page(fb);
     transfer_header(fb, s_mode == READ_PICO_TRANSFER_MODE_AP ? "热点传书" : "WiFi 传书", NULL);
     EpdRect connection = {36, 168, 612, 132};

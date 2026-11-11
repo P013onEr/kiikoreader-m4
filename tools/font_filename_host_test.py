@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as d:
 #define MALLOC_CAP_8BIT 2
 #define heap_caps_calloc(n,b,c) calloc(n,b)
 typedef struct{char name[64],path[160];}ttf_font_item_t;
-static ttf_font_item_t *s_catalog;static int s_catalog_n;
+static ttf_font_item_t *s_catalog;static bool s_catalog_scanned;static int s_catalog_n;
 static const char *k_font_dirs[2],*user;
 static const char *app_settings_fonts_dir(void){return user;}
 '''

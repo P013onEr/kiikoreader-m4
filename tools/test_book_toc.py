@@ -9,6 +9,9 @@ SOURCE = ROOT / "main/apps/book_toc.c"
 
 STUBS = {
     "epdiy.h": """#pragma once
+#ifndef KIIKO_BOARD_MURPHY_M4
+#define KIIKO_BOARD_MURPHY_M4 0
+#endif
 #include <stdint.h>
 typedef struct {int x,y,width,height;} EpdRect;
 enum EpdFontFlags {EPD_DRAW_ALIGN_LEFT=0, EPD_DRAW_ALIGN_CENTER=1, EPD_DRAW_ALIGN_RIGHT=2};

@@ -16,6 +16,7 @@ unit=r'''
 #include <strings.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "storage_scan_filter.h"
 #define MALLOC_CAP_SPIRAM 1
 #define MALLOC_CAP_8BIT 2
 #define READER_BACKGROUND_ROWS 7
@@ -79,9 +80,9 @@ int main(int argc,char **argv){
 with tempfile.TemporaryDirectory(dir=ROOT/'build') as directory:
     d=Path(directory); pictures=d/'pictures';pictures.mkdir();many=d/'many';many.mkdir()
     for i in range(16):(pictures/f'wallpaper-{i:02d}.{"PNG" if i==15 else "jpg"}').write_bytes(b'image')
-    for name in ('._wallpaper-00.jpg','.hidden.png','.DS_Store','notes.txt'):(pictures/name).write_bytes(b'metadata')
+    for name in ('._wallpaper-00.jpg','.hidden.png','.DS_Store','notes.txt','wallpaper-99.jpg.tmp','~$wallpaper-98.jpg'):(pictures/name).write_bytes(b'metadata')
     (pictures/'directory.png').mkdir();(pictures/'empty.jpg').touch()
     for i in range(129):(many/f'wallpaper-{i:03d}.jpg').write_bytes(b'image')
     c=d/'flow.c';exe=d/'flow';c.write_text(unit)
-    subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',str(c),'-o',str(exe)],check=True)
+    subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-I',str(ROOT/'main'),str(c),'-o',str(exe)],check=True)
     subprocess.run([str(exe),str(pictures),str(many)],check=True)

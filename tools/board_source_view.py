@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import re
 
-BOARDS = ('pico', 'metalio47')
+BOARDS = ('pico', 'metalio47', 'murphy_m4')
 BOARD_ALIASES = {'metalio_s31': 'metalio47'}
 
 def canonical_board(board):
@@ -54,7 +54,7 @@ def materialize(root, destination, board, tests=False):
     board = canonical_board(board)
     root, destination = Path(root).resolve(), Path(destination).resolve()
     if board not in BOARDS or root == destination or root.is_relative_to(destination):
-        raise ValueError('Use a separate destination for pico or metalio47')
+        raise ValueError('Use a separate destination for pico, metalio47, or murphy_m4')
     if destination.is_relative_to(root) and destination.relative_to(root).parts[0] in (
             'main', 'components', 'boards', 'cmake', 'tools', 'docs'):
         raise ValueError('Do not generate build views inside maintained source directories')

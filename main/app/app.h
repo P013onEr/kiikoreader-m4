@@ -26,7 +26,11 @@
 #include "epd_highlevel.h"
 #include "epdiy.h"
 #include "app_config.h"
+#if KIIKO_BOARD_MURPHY_M4
+#include "m4_epdiy_compat/sc7a20h_lab.h"
+#else
 #include "sc7a20h_lab.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {

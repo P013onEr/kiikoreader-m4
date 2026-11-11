@@ -19,12 +19,14 @@
  */
 
 #include "ttf_font.h"
+#include "storage_scan_filter.h"
 #include "text_glue.h"
 #include "../kiiko_board_config.h"
 #include "ttf_stroke_filter.h"
 #include "ui_hanzi_aa_scale.h"
 
 #include <dirent.h>
+#include <errno.h>
 #if KIIKO_BOARD_METALIO47
 #include <errno.h>
 #include "online_font_names.h"
@@ -129,6 +131,8 @@ static ui_hanzi_cache_t s_reader_hanzi;
 
 static const char* const k_font_dirs[] = {
     "/sdcard/assets/fonts",
+    "/sdcard/fonts",
+    "/sdcard/font",
     NULL,
 };
 
@@ -682,7 +686,7 @@ static bool is_junk_name(const char* name) {
 #if KIIKO_BOARD_METALIO47
     return !strcmp(name,".") || !strcmp(name,"..");
 #else
-    return name[0] == '.' || strncmp(name, "._", 2) == 0;
+    return storage_name_is_os_metadata(name) || storage_file_is_temporary(name);
 #endif
 }
 
@@ -733,6 +737,7 @@ static bool catalog_has_name(
 // 字体目录放 PSRAM，理由同文件列表。
 // The font catalogue lives in PSRAM for the same reason as the file list.
 static ttf_font_item_t *s_catalog;
+static bool s_catalog_scanned;
 
 static bool catalog_alloc(void) {
     if (!s_catalog)
@@ -745,10 +750,17 @@ static int s_catalog_n;
 int ttf_font_scan(void) {
     if (!catalog_alloc()) return 0;
     s_catalog_n = 0;
+    unsigned scanned_dirs = 0;
     for (size_t d = 0; d < sizeof(k_font_dirs) / sizeof(k_font_dirs[0]); d++) {
         const char* font_dir = k_font_dirs[d] ? k_font_dirs[d] : app_settings_fonts_dir();
         DIR* dir = opendir(font_dir);
-        if (dir == NULL) continue;
+        if (dir == NULL) {
+#if KIIKO_BOARD_MURPHY_M4
+            ESP_LOGI(TAG, "scan dir unavailable: %s errno=%d", font_dir, errno);
+#endif
+            continue;
+        }
+        ++scanned_dirs;
         struct dirent* ent;
         while ((ent = readdir(dir)) != NULL && s_catalog_n < TTF_FONT_MAX) {
 #if KIIKO_BOARD_METALIO47
@@ -796,10 +808,13 @@ int ttf_font_scan(void) {
             if (name[0] == '\0' || catalog_has_name(s_catalog, s_catalog_n, name)) {
                 continue;
             }
-            snprintf(
+            const int path_length = snprintf(
                 s_catalog[s_catalog_n].path, sizeof(s_catalog[s_catalog_n].path),
                 "%s/%s", font_dir, ent->d_name
             );
+            if (path_length < 0 || path_length >= (int)sizeof(s_catalog[s_catalog_n].path)) {
+                continue;
+            }
             strlcpy(s_catalog[s_catalog_n].name, name, sizeof(s_catalog[0].name));
             s_catalog_n++;
 #endif
@@ -816,7 +831,18 @@ int ttf_font_scan(void) {
     if (s_catalog_n > 1) {
         qsort(s_catalog, (size_t)s_catalog_n, sizeof(s_catalog[0]), font_item_cmp);
     }
+    s_catalog_scanned = true;
+#if KIIKO_BOARD_MURPHY_M4
+    ESP_LOGI(TAG, "scan complete: dirs=%u fonts=%d roots=/sdcard/assets/fonts,%s",
+             scanned_dirs, s_catalog_n, app_settings_fonts_dir());
+#else
+    (void)scanned_dirs;
+#endif
     return s_catalog_n;
+}
+
+bool ttf_font_scan_complete(void) {
+    return s_catalog_scanned;
 }
 
 int ttf_font_count(void) {

@@ -157,10 +157,9 @@ def main():
         duplicated = {value for value in values if values.count(value) > 1}
         if duplicated:
             fail(problems, f'boards share {key}: {sorted(duplicated)}')
-    for key in ('image_chip_id', 'bootloader_offset'):
-        values = [info[key] for info in infos.values()]
-        if len(set(values)) != len(values):
-            fail(problems, f'boards share {key}: {values}')
+    # Chip IDs and bootloader offsets may legitimately be shared by different
+    # boards; the project, partition table and target metadata are the identity
+    # boundaries checked above and by the firmware packager.
     check_root_has_no_board_copies(problems)
     check_ci_matrix(problems, boards)
     check_docs(problems, boards)

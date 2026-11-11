@@ -55,7 +55,8 @@ static void epd_draw_pixel(int x,int y,uint8_t gray,uint8_t *fb){
 '''
 for name in ('inside_rounded','avatar_content_crop','image_pixels','ui_wallpaper_draw','ui_wallpaper_draw_rounded','ui_wallpaper_draw_avatar'):
  unit+=function(name,source)+'\n'
-unit+=source.read_text()[source.read_text().index('#ifndef UI_WALLPAPER_CACHE_PARENT'):]
+cache_start = source.read_text().index('#if KIIKO_BOARD_METALIO47\n#ifndef UI_WALLPAPER_CACHE_PARENT')
+unit+=source.read_text()[cache_start:]
 unit+=r'''
 static uint8_t frame[WALL_LOCK_BYTES],expected[WALL_LOCK_BYTES],second[WALL_LOCK_BYTES],avatar[82*82];
 static void set_source(const char *name,size_t n){snprintf(source_file,sizeof(source_file),"%s",name);FILE *f=fopen(name,"wb");assert(f);for(size_t i=0;i<n;++i)assert(fputc((int)i,f)!=EOF);assert(!fclose(f));}

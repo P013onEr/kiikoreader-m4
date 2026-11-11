@@ -19,6 +19,7 @@
 
 #include "app.h"
 #include "app_registry.h"
+#include "storage_scan_filter.h"
 #include "app_content_open.h"
 #include "book_cover.h"
 #include "display.h"
@@ -34,6 +35,12 @@
 #include "ui_glass.h"
 #include "e0470_epaper_waveform.h"
 #endif
+#if KIIKO_BOARD_MURPHY_M4
+#define IMAGE_CENTER_X (UI_LOCK_WIDTH / 2)
+#define IMAGE_LIST_X 24
+#define IMAGE_LIST_W (UI_LOCK_WIDTH - 48)
+#define IMAGE_LIST_ARROW_X (UI_LOCK_WIDTH - 42)
+#endif
 
 #define IMAGE_MAX 96
 #define IMAGE_BYTES_MAX BOOK_IMAGE_FILE_MAX
@@ -44,6 +51,11 @@
 #endif
 extern const uint8_t display_test_png_start[] asm("_binary_display_test_png_start");
 extern const uint8_t display_test_png_end[] asm("_binary_display_test_png_end");
+#if KIIKO_BOARD_MURPHY_M4
+static const uint8_t s_m4_no_demo_image[1] = {0};
+#define display_test_png_start s_m4_no_demo_image
+#define display_test_png_end (s_m4_no_demo_image + sizeof(s_m4_no_demo_image))
+#endif
 
 #if KIIKO_BOARD_METALIO47
 #define IMAGE_PATH_MAX 288
@@ -95,7 +107,7 @@ bool app_image_request_lock_picker(const char *path, bool transparent) {
 #endif
 
 static bool image_name(const char *name, bool *png) {
-    if (!name[0] || name[0] == '.') return false; // 跳过 macOS 辅助文件。/ Skip macOS sidecar files.
+    if (storage_name_is_os_metadata(name) || storage_file_is_temporary(name)) return false;
     const char *ext = strrchr(name, '.');
     if (!ext) return false;
     *png = !strcasecmp(ext, ".png");
@@ -243,7 +255,7 @@ static void render_content(app_ctx_t *ctx, uint8_t *fb) {
     ui_text_vc(fb,342,107,34,s_lock_mode==IMAGE_LOCK_WALLPAPER?"壁纸锁屏":
         s_lock_mode==IMAGE_LOCK_BOOKMARK?"透明书封":"图片",EPD_DRAW_ALIGN_CENTER,false);
 #else
-    ui_text_vc(fb, 342, 107, 34, "图片", EPD_DRAW_ALIGN_CENTER, false);
+    ui_text_vc(fb, IMAGE_CENTER_X, 80, KIIKO_BOARD_MURPHY_M4 ? 26 : 34, "图片", EPD_DRAW_ALIGN_CENTER, false);
 #endif
     char caption[64];
 #if KIIKO_BOARD_METALIO47
@@ -251,17 +263,25 @@ static void render_content(app_ctx_t *ctx, uint8_t *fb) {
 #else
     snprintf(caption, sizeof(caption), "%d 张 · JPG / PNG", s_count);
 #endif
-    ui_text(fb, 36, 165, 21, caption, EPD_DRAW_ALIGN_LEFT, false);
-    ui_hairline(fb, 202, 36, 612, UI_GRAY_LIGHT);
+    ui_text(fb, KIIKO_BOARD_MURPHY_M4 ? 24 : 36, KIIKO_BOARD_MURPHY_M4 ? 126 : 165,
+            KIIKO_BOARD_MURPHY_M4 ? 17 : 21, caption, EPD_DRAW_ALIGN_LEFT, false);
+    ui_hairline(fb, KIIKO_BOARD_MURPHY_M4 ? 154 : 202,
+                KIIKO_BOARD_MURPHY_M4 ? 24 : 36,
+                KIIKO_BOARD_MURPHY_M4 ? IMAGE_LIST_W : 612, UI_GRAY_LIGHT);
     for (int row = 0; row < IMAGE_ROWS; ++row) {
         int idx = s_page * IMAGE_ROWS + row;
         if (idx >= s_count) break;
-        EpdRect box = {36, 214 + row * 101, 612, 84};
+        EpdRect box = {KIIKO_BOARD_MURPHY_M4 ? IMAGE_LIST_X : 36,
+                       KIIKO_BOARD_MURPHY_M4 ? 168 + row * 70 : 214 + row * 101,
+                       KIIKO_BOARD_MURPHY_M4 ? IMAGE_LIST_W : 612,
+                       KIIKO_BOARD_MURPHY_M4 ? 60 : 84};
         ui_fill_round_rect(fb, box, 17, UI_GRAY_WHITE);
-        ui_text_vc(fb, 58, box.y + 42, 24, s_items[idx].name, EPD_DRAW_ALIGN_LEFT, false);
-        ui_text_vc(fb, 623, box.y + 42, 25, "›", EPD_DRAW_ALIGN_RIGHT, false);
+        ui_text_vc(fb, box.x + (KIIKO_BOARD_MURPHY_M4 ? 18 : 22), box.y + box.height / 2,
+                   KIIKO_BOARD_MURPHY_M4 ? 18 : 24, s_items[idx].name, EPD_DRAW_ALIGN_LEFT, false);
+        ui_text_vc(fb, KIIKO_BOARD_MURPHY_M4 ? IMAGE_LIST_ARROW_X : 623,
+                   box.y + box.height / 2, KIIKO_BOARD_MURPHY_M4 ? 22 : 25, "›", EPD_DRAW_ALIGN_RIGHT, false);
     }
-    if (s_message[0]) ui_text(fb, 36, UI_LOCK_HEIGHT-70, 21, s_message, EPD_DRAW_ALIGN_LEFT, false);
+    if (s_message[0]) ui_text(fb, KIIKO_BOARD_MURPHY_M4 ? 24 : 36, UI_LOCK_HEIGHT-70, KIIKO_BOARD_MURPHY_M4 ? 17 : 21, s_message, EPD_DRAW_ALIGN_LEFT, false);
 
 }
 static void render(app_ctx_t *ctx,uint8_t *fb) {
@@ -414,7 +434,12 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *event) 
     for (int row = 0; row < IMAGE_ROWS; ++row) {
         int idx = s_page * IMAGE_ROWS + row;
         if (idx >= s_count) break;
-        if (ui_rect_hit((EpdRect){36, 214 + row * 101, 612, 84}, event->x0, event->y0)) {
+        EpdRect row_rect = {
+            KIIKO_BOARD_MURPHY_M4 ? IMAGE_LIST_X : 36,
+            KIIKO_BOARD_MURPHY_M4 ? 168 + row * 70 : 214 + row * 101,
+            KIIKO_BOARD_MURPHY_M4 ? IMAGE_LIST_W : 612,
+            KIIKO_BOARD_MURPHY_M4 ? 60 : 84};
+        if (ui_rect_hit(row_rect, event->x0, event->y0)) {
             if (!load_image(idx)) s_viewing = false;
             return IMAGE_ACTION_REDRAW;
         }

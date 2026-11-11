@@ -113,7 +113,19 @@ static void worker(void *unused) {
         if(slot<0){s_running=false;portEXIT_CRITICAL(&s_lock);break;}
         job=s_jobs[slot];s_jobs[slot].automatic=NULL;s_jobs[slot].state=RUNNING;generation=s_generation;
         portEXIT_CRITICAL(&s_lock);
+#if defined(ESP_PLATFORM) && KIIKO_BOARD_MURPHY_M4
+        const int64_t started_us = esp_timer_get_time();
+#endif
         prepare(&job,generation);
+#ifdef ESP_PLATFORM
+#if KIIKO_BOARD_MURPHY_M4
+        ESP_LOGI("cover", "job %s result=%s fast=%d elapsed_ms=%lld",
+                 job.request.path,
+                 job.state == AUTO ? "auto-pending" : job.result.pixels ? "ready" : "failed",
+                 job.result.fast ? 1 : 0,
+                 (long long)((esp_timer_get_time() - started_us) / 1000));
+#endif
+#endif
         portENTER_CRITICAL(&s_lock);
         if(!s_paused&&generation==s_generation){
             s_jobs[slot].auto_cache=job.auto_cache;s_jobs[slot].result=job.result;s_jobs[slot].state=job.result.pixels?(job.state==AUTO?AUTO:READY):FAILED;
@@ -128,7 +140,17 @@ static void start_worker(void) {
     portENTER_CRITICAL(&s_lock);bool queued=false;
     if(s_jobs)for(unsigned i=0;i<BOOK_COVER_JOB_SLOTS;++i)queued|=s_jobs[i].state==QUEUED;
     bool start=queued&&!s_running&&!s_paused;if(start)s_running=true;portEXIT_CRITICAL(&s_lock);
-    if(start&&xTaskCreate(worker,"covers",12288,NULL,1,NULL)!=pdPASS){
+    BaseType_t created = pdPASS;
+    if (start) {
+#if KIIKO_BOARD_MURPHY_M4
+        // The M4 display path has short cache-off bus sections. Keep libpng on
+        // the UI core so it only runs when the UI task yields between refreshes.
+        created = xTaskCreatePinnedToCore(worker, "covers", 12288, NULL, 1, NULL, 0);
+#else
+        created = xTaskCreate(worker,"covers",12288,NULL,1,NULL);
+#endif
+    }
+    if(start&&created!=pdPASS){
         uint8_t *old[BOOK_COVER_JOB_SLOTS]={0};
         portENTER_CRITICAL(&s_lock);s_running=false;
         for(unsigned i=0;i<BOOK_COVER_JOB_SLOTS;++i)if(s_jobs[i].state==QUEUED){
@@ -178,9 +200,19 @@ int book_cover_jobs_take(unsigned generation,unsigned slot,book_cover_result_t *
     else if(s_jobs[slot].state==FAILED||s_jobs[slot].state==TAKEN)status=-1;
     portEXIT_CRITICAL(&s_lock);
     if(automatic.result.pixels){
+#if defined(ESP_PLATFORM) && KIIKO_BOARD_MURPHY_M4
+        const int64_t started_us = esp_timer_get_time();
+#endif
         char canonical[256];const char *title=automatic.request.title;
         if(book_title_from_path(automatic.request.path,canonical,sizeof(canonical)))title=canonical;
         bool ok=book_auto_cover_render(automatic.request.path,title,automatic.request.author,BOOK_COVER_W,BOOK_COVER_H,automatic.result.pixels);
+#ifdef ESP_PLATFORM
+#if KIIKO_BOARD_MURPHY_M4
+        ESP_LOGI("cover", "auto %s result=%s elapsed_ms=%lld", automatic.request.path,
+                 ok ? "ready" : "failed",
+                 (long long)((esp_timer_get_time() - started_us) / 1000));
+#endif
+#endif
         portENTER_CRITICAL(&s_lock);
         if(generation==s_generation&&!s_paused){
             s_jobs[slot].state=ok?QUEUED:FAILED;

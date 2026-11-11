@@ -21,12 +21,13 @@ static int mount_calls, mount_error, mkdir_error, is_directory = 1, fat_error;
 static int sd_mkdir_error;
 static int file_mode = S_IFREG, file_error, unlink_error, forget_error, unlinks, forgets;
 static bool sd_exists = true, flash_exists = true;
-static bool legacy_dir;
+static bool legacy_dir, plural_dir = true;
 static bool backup_exists;
 static unsigned backup_probes;static bool reject_long_backup;
 static int backup_mode = S_IFREG, backup_unlink_error, rename_error;
 static char forgotten[BOOK_STORE_PATH_MAX];
-const char* app_settings_books_dir(void) { return "/sdcard/books"; }
+static const char *configured_books_dir = "/sdcard/books";
+const char* app_settings_books_dir(void) { return configured_books_dir; }
 static int mock_mkdir(const char* path, mode_t mode) {
     (void)mode;
     errno = sd_mkdir_error && !strncmp(path, "/sdcard/", 8) ? sd_mkdir_error : mkdir_error;
@@ -37,6 +38,7 @@ static int mock_stat(const char* path, struct stat* out) {
         if (!legacy_dir) { errno = ENOENT; return -1; }
         out->st_mode = S_IFDIR; return 0;
     }
+    if (!strcmp(path, "/sdcard/books") && !plural_dir) { errno = ENOENT; return -1; }
     if (!strcmp(path, "/sdcard")) {
         out->st_mode = is_directory ? S_IFDIR : S_IFREG; return 0;
     }
@@ -119,6 +121,11 @@ int main(void) {
     legacy_dir = true;
     assert(book_store_roots(roots, &n) == ESP_OK && n == 3);
     assert(!strcmp(roots[0].path, "/sdcard/book") && !strcmp(roots[1].path, "/sdcard/books") && roots[2].is_flash);
+    configured_books_dir = "/sdcard/library";
+    assert(book_store_roots(roots, &n) == ESP_OK && n == 4);
+    assert(!strcmp(roots[0].path, "/sdcard/book") && !strcmp(roots[1].path, "/sdcard/books") &&
+           !strcmp(roots[2].path, "/sdcard/library") && roots[3].is_flash);
+    configured_books_dir = "/sdcard/books";
     legacy_dir = false;
     int calls = mount_calls;
     assert(book_store_roots(roots, &n) == ESP_OK && mount_calls == calls);

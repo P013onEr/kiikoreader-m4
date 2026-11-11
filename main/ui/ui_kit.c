@@ -18,6 +18,10 @@
 #include "ui_locale_format.h"
 #endif
 #include "ui_kit.h"
+#include "ui_nav_layout.h"
+#if KIIKO_BOARD_MURPHY_M4
+#include "../m4_project_ui_adapter.h"
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -153,9 +157,19 @@ void ui_draw_icon(
     }
 }
 
-EpdRect ui_pager_area_at(int top) { return (EpdRect){36,top,612,50}; }
+EpdRect ui_pager_area_at(int top) {
+#if KIIKO_BOARD_MURPHY_M4
+    return (EpdRect){24,top,432,50};
+#else
+    return (EpdRect){36,top,612,50};
+#endif
+}
 EpdRect ui_pager_rect_at(int action,int top) {
+#if KIIKO_BOARD_MURPHY_M4
+    static const int left[]={24,76,356,408},width[]={48,48,48,48};
+#else
     static const int left[]={36,116,480,576},width[]={72,88,88,72};
+#endif
     return action>=UI_PAGER_FIRST&&action<=UI_PAGER_LAST?
         (EpdRect){left[action],top,width[action],50}:(EpdRect){0};
 }
@@ -164,9 +178,9 @@ int ui_pager_hit_at(int x,int y,int top) {
         if(ui_rect_hit(ui_pager_rect_at(action,top),x,y))return action;
     return UI_PAGER_NONE;
 }
-EpdRect ui_pager_area(void) { return ui_pager_area_at(1006); }
-EpdRect ui_pager_rect(int action) { return ui_pager_rect_at(action,1006); }
-int ui_pager_hit(int x,int y) { return ui_pager_hit_at(x,y,1006); }
+EpdRect ui_pager_area(void) { return ui_pager_area_at(UI_PAGER_TOP); }
+EpdRect ui_pager_rect(int action) { return ui_pager_rect_at(action,UI_PAGER_TOP); }
+int ui_pager_hit(int x,int y) { return ui_pager_hit_at(x,y,UI_PAGER_TOP); }
 int ui_pager_target(int action,int page,int pages) {
     if(pages<1)pages=1;
     if(page<0)page=0;
@@ -178,7 +192,11 @@ int ui_pager_target(int action,int page,int pages) {
     return page;
 }
 void ui_pager_draw_at(uint8_t *fb,const char *label,int page,int pages,bool key_mode,int pressed,int top) {
+#if KIIKO_BOARD_MURPHY_M4
+    ui_text_box(fb,(EpdRect){132,top,216,50},16,label,EPD_DRAW_ALIGN_CENTER,false);
+#else
     ui_text_box(fb,(EpdRect){212,top,260,50},21,label,EPD_DRAW_ALIGN_CENTER,false);
+#endif
     for(int action=UI_PAGER_FIRST;action<=UI_PAGER_LAST;++action){
         EpdRect r=ui_pager_rect_at(action,top);
         bool previous=action==UI_PAGER_FIRST||action==UI_PAGER_PREVIOUS;
@@ -186,7 +204,11 @@ void ui_pager_draw_at(uint8_t *fb,const char *label,int page,int pages,bool key_
         bool down=pressed==action,outlined=key_mode&&!end;
         bool enabled=ui_pager_target(action,page,pages)!=page;
         int cx=r.x+r.width/2+(down?(previous?-3:3):0),cy=r.y+r.height/2;
+#if KIIKO_BOARD_MURPHY_M4
+        int size=down?30:26;
+#else
         int size=down?42:36;
+#endif
         static const ui_icon_t icons[]={UI_ICON_PAGER_CHEVRON_FIRST,UI_ICON_CHEVRON_LEFT,
             UI_ICON_CHEVRON_RIGHT,UI_ICON_PAGER_CHEVRON_LAST};
         ui_icon_t icon=icons[action];
@@ -200,7 +222,7 @@ void ui_pager_draw_at(uint8_t *fb,const char *label,int page,int pages,bool key_
 }
 
 void ui_pager_draw(uint8_t *fb,const char *label,int page,int pages,bool key_mode,int pressed) {
-    ui_pager_draw_at(fb,label,page,pages,key_mode,pressed,1006);
+    ui_pager_draw_at(fb,label,page,pages,key_mode,pressed,UI_PAGER_TOP);
 }
 
 static void draw_frosted(uint8_t *fb, EpdRect rect, bool pocket) {
@@ -941,9 +963,16 @@ EpdRect ui_content_refresh_area(void) {
 
 void ui_hairline(uint8_t* framebuffer, int y, int x, int w, uint8_t color) {
     color = ui_contrast_gray(color);
+#if KIIKO_BOARD_MURPHY_M4
+    // SSD1677 Gray4 quantization can erase a one-pixel mid-gray rule; keep M4
+    // structural rules two pixels tall and in a stable dark level.
+    color = 0x00;
+    ui_fill_rect_fast((EpdRect){ .x = x, .y = y, .width = w, .height = 2 }, color, framebuffer);
+#else
     ui_fill_rect_fast(
         (EpdRect){ .x = x, .y = y, .width = w, .height = 1 }, color, framebuffer
     );
+#endif
 }
 
 static void header_ink_span(int y_top, int px, const char* text, int* top, int* bot) {

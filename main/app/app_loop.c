@@ -78,6 +78,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "read_pico_board.h"
+#if KIIKO_BOARD_MURPHY_M4
+#include "m4_project_platform.h"
+#endif
+#if KIIKO_BOARD_MURPHY_M4
+#include "m4_display_bridge.h"
+#endif
 #include "read_pico_crashlog.h"
 #include "read_pico_pmu.h"
 #include "read_pico_transfer.h"
@@ -981,10 +987,16 @@ static void run_power_action(app_ctx_t *ctx, const app_desc_t *current, bool res
 }
 
 bool app_poll_main_navigation(app_ctx_t *ctx) {
-    if(!ctx||!ctx->tp)return false;
+    if(!ctx)return false;
     if(ctx->request_app)return true;
     cst836u_touch_t touch={0};
-    if(cst836u_read(ctx->tp,&touch)!=ESP_OK||!touch.touched||touch.count!=1) {
+#if KIIKO_BOARD_MURPHY_M4
+    const bool bridge_read = m4_input_bridge_read(&touch);
+    const esp_err_t read_err = bridge_read ? ESP_OK : ESP_FAIL;
+#else
+    const esp_err_t read_err = cst836u_read(ctx->tp, &touch);
+#endif
+    if(read_err!=ESP_OK||!touch.touched||touch.count!=1) {
         s_nav_contact_down=s_nav_polled=false;return false;
     }
     int index=ui_nav_hit(touch.x,touch.y);
@@ -1018,7 +1030,12 @@ void app_loop_run(const app_loop_config_t* config) {
         : app_home_page();
 
     cst836u_info_t touch_info = { 0 };
+#if KIIKO_BOARD_MURPHY_M4
+    /* M4's FT6336U is owned by FreeInk InputManager; there is no CST836U
+       handle to query here. Keep the shared metadata contract zeroed. */
+#else
     cst836u_get_info(config->tp, &touch_info);
+#endif
     cst836u_touch_t latest = { 0 };
 
     app_ctx_t ctx = {
@@ -1087,13 +1104,21 @@ void app_loop_run(const app_loop_config_t* config) {
 #endif
 
     while (true) {
+#if KIIKO_BOARD_MURPHY_M4
+        m4_project_platform_poll();
+#endif
         unsigned requested_cover_policy = (unsigned)app_settings_main_refresh_mode() | ((unsigned)app_settings_system_contrast() << 8);
         if (requested_cover_policy != cover_policy) {
             app_home_cover_mode_changed(); app_book_cover_mode_changed();
             cover_policy = requested_cover_policy;
         }
         cst836u_touch_t touch = { 0 };
+#if KIIKO_BOARD_MURPHY_M4
+        const bool bridge_read = m4_input_bridge_read(&touch);
+        esp_err_t err = bridge_read ? ESP_OK : ESP_FAIL;
+#else
         esp_err_t err = cst836u_read(config->tp, &touch);
+#endif
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "CST836U read failed: %s", esp_err_to_name(err));
             memset(&touch, 0, sizeof(touch));
